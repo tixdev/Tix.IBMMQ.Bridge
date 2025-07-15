@@ -39,7 +39,7 @@ public class MQBridgeService : BackgroundService
                 using var inboundQueue = inboundQMgr.AccessQueue(pair.InboundQueue, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
                 using var outboundQueue = outboundQMgr.AccessQueue(pair.OutboundQueue, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
 
-                var gmo = new MQGetMessageOptions { Options = MQC.MQGMO_WAIT, WaitInterval = 1000 };
+                var gmo = new MQGetMessageOptions { Options = MQC.MQGMO_WAIT, WaitInterval = 30000 };
 
                 while (true)
                 {
@@ -62,7 +62,6 @@ public class MQBridgeService : BackgroundService
                 _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}", pair.InboundQueue, pair.OutboundQueue);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(pair.PollIntervalSeconds), token);
         }
     }
 

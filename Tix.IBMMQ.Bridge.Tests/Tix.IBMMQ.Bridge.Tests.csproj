@@ -9,6 +9,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.0" />
     <PackageReference Include="Shouldly" Version="5.0.0" />
     <PackageReference Include="IBM.WMQ.ManagedClient" Version="9.4.0.0" />
-    <ProjectReference Include="..\Tix.IBMMQ.Bridge.csproj" />
+    <ProjectReference Include="..\Tix.IBMMQ.Bridge\Tix.IBMMQ.Bridge.csproj" />
+    <None Include="..\Tix.IBMMQ.Bridge\appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
