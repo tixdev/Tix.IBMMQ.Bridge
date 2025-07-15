@@ -18,6 +18,13 @@ Queue connections and queue pairs are configured in the `MQBridge` section of *a
         "Channel": "SVRCONN.CHANNEL",
         "UserId": "user1",
         "Password": "pwd1"
+      },
+      "ConnB": {
+        "QueueManagerName": "QM2",
+        "ConnectionName": "host2(1414)",
+        "Channel": "SVRCONN.CHANNEL",
+        "UserId": "user2",
+        "Password": "pwd2"
       }
     },
     "QueuePairs": [
@@ -26,6 +33,13 @@ Queue connections and queue pairs are configured in the `MQBridge` section of *a
         "InboundQueue": "IN.Q1",
         "OutboundConnection": "ConnB",
         "OutboundQueue": "OUT.Q1",
+        "PollIntervalSeconds": 30
+      },
+      {
+        "InboundConnection": "ConnB",
+        "InboundQueue": "IN.Q2",
+        "OutboundConnection": "ConnA",
+        "OutboundQueue": "OUT.Q2",
         "PollIntervalSeconds": 30
       }
     ]
