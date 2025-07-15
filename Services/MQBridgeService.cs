@@ -80,7 +80,7 @@ public class MQBridgeService : BackgroundService
         };
     }
 
-    private static (string host, int port) ParseConnectionName(string connectionName)
+    internal static (string host, int port) ParseConnectionName(string connectionName)
     {
         var start = connectionName.IndexOf('(');
         var end = connectionName.IndexOf(')', start + 1);
