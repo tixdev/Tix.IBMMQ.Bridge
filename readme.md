@@ -46,3 +46,7 @@ Queue connections and queue pairs are configured in the `MQBridge` section of *a
 ```
 
 Run the service with `dotnet run`.
+
+## Documentation
+
+Additional usage and setup information can be found in the [docs](docs/) folder.
