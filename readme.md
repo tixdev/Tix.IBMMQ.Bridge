@@ -32,15 +32,13 @@ Queue connections and queue pairs are configured in the `MQBridge` section of *a
         "InboundConnection": "ConnA",
         "InboundQueue": "IN.Q1",
         "OutboundConnection": "ConnB",
-        "OutboundQueue": "OUT.Q1",
-        "PollIntervalSeconds": 30
+        "OutboundQueue": "OUT.Q1"
       },
       {
         "InboundConnection": "ConnB",
         "InboundQueue": "IN.Q2",
         "OutboundConnection": "ConnA",
-        "OutboundQueue": "OUT.Q2",
-        "PollIntervalSeconds": 30
+        "OutboundQueue": "OUT.Q2"
       }
     ]
   }
