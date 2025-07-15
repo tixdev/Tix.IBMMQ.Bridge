@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Builder;
 using Tix.IBMMQ.Bridge.Options;
 using Tix.IBMMQ.Bridge.Services;
 

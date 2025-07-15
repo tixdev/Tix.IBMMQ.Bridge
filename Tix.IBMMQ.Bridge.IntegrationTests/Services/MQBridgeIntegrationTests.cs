@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Shouldly;
 using System.Collections;
+using System.Threading.Tasks;
+using System.Threading;
 using Tix.IBMMQ.Bridge.Options;
 using Tix.IBMMQ.Bridge.Services;
 using Xunit;

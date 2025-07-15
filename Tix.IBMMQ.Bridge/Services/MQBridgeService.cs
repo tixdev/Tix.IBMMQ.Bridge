@@ -3,6 +3,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Linq;
 using Tix.IBMMQ.Bridge.Options;
 
 namespace Tix.IBMMQ.Bridge.Services;
@@ -92,7 +96,7 @@ public class MQBridgeService : BackgroundService
         };
     }
 
-    internal static (string host, int port) ParseConnectionName(string connectionName)
+    public static (string host, int port) ParseConnectionName(string connectionName)
     {
         var start = connectionName.IndexOf('(');
         var end = connectionName.IndexOf(')', start + 1);
