@@ -39,7 +39,12 @@ public class MQBridgeService : BackgroundService
                 using var inboundQueue = inboundQMgr.AccessQueue(pair.InboundQueue, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
                 using var outboundQueue = outboundQMgr.AccessQueue(pair.OutboundQueue, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
 
-                var gmo = new MQGetMessageOptions { Options = MQC.MQGMO_WAIT, WaitInterval = 30000 };
+                var gmo = new MQGetMessageOptions
+                {
+                    Options = MQC.MQGMO_WAIT | MQC.MQGMO_SYNCPOINT,
+                    WaitInterval = 30000
+                };
+                var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
                 while (true)
                 {
@@ -48,12 +53,20 @@ public class MQBridgeService : BackgroundService
                     {
                         inboundQueue.Get(message, gmo);
                         _logger.LogInformation("Received message from {Inbound}", pair.InboundQueue);
-                        outboundQueue.Put(message);
+                        outboundQueue.Put(message, pmo);
+                        inboundQMgr.Commit();
+                        outboundQMgr.Commit();
                         _logger.LogInformation("Forwarded message to {Outbound}", pair.OutboundQueue);
                     }
                     catch (MQException ex) when (ex.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
                     {
                         break;
+                    }
+                    catch (Exception)
+                    {
+                        inboundQMgr.Backout();
+                        outboundQMgr.Backout();
+                        throw;
                     }
                 }
             }
