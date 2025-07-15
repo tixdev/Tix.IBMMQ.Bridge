@@ -3,6 +3,6 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="IBM.WMQ.ManagedClient" Version="9.4.0.0" />
+    <PackageReference Include="IBMMQDotnetClient" Version="9.4.3" />
   </ItemGroup>
 </Project>
