@@ -37,8 +37,8 @@ public class MQBridgeService : BackgroundService
                 var inbound = _options.Connections[pair.InboundConnection];
                 var outbound = _options.Connections[pair.OutboundConnection];
 
-                using var inboundQMgr = new MQQueueManager(inbound.QueueManagerName, BuildProperties(inbound));
-                using var outboundQMgr = new MQQueueManager(outbound.QueueManagerName, BuildProperties(outbound));
+                using var inboundQMgr = new MQQueueManager(inbound.QueueManagerName, BuildProperties(inbound, pair.InboundChannel));
+                using var outboundQMgr = new MQQueueManager(outbound.QueueManagerName, BuildProperties(outbound, pair.OutboundChannel));
 
                 using var inboundQueue = inboundQMgr.AccessQueue(pair.InboundQueue, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
                 using var outboundQueue = outboundQMgr.AccessQueue(pair.OutboundQueue, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
@@ -82,14 +82,14 @@ public class MQBridgeService : BackgroundService
         }
     }
 
-    private Hashtable BuildProperties(ConnectionOptions opts)
+    private Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = ParseConnectionName(opts.ConnectionName);
         return new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
-            { MQC.CHANNEL_PROPERTY, opts.Channel },
+            { MQC.CHANNEL_PROPERTY, channel },
             { MQC.USER_ID_PROPERTY, opts.UserId },
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }

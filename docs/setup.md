@@ -4,7 +4,12 @@ This document explains how to build, run and test the **Tix.IBMMQ.Bridge** proje
 
 ## Prerequisites
 
-- .NET 8.0 SDK
+- .NET 8.0 SDK. On Ubuntu you can install it with:
+
+  ```bash
+  sudo apt-get install -y dotnet-sdk-8.0
+  ```
+
 - Access to one or more IBM MQ queue managers
 
 ## Build
