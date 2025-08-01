@@ -1,3 +1,4 @@
+using DotNet.Testcontainers;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
@@ -6,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Shouldly;
 using System.Collections;
+using System;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Threading;
 using Tix.IBMMQ.Bridge.Options;
@@ -16,16 +20,39 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
 public class MQBridgeIntegrationTests : IAsyncLifetime
 {
-    private readonly TestcontainersContainer _container;
+    private readonly IContainer _container;
+
+    // The Testcontainers resource reaper (Ryuk) cannot start under Podman
+    // because Podman refuses to hijack a chunked stream. Disabling it
+    // avoids 'cannot hijack chunked or content length stream' errors
+    // when running the integration tests.
+    static MQBridgeIntegrationTests()
+    {
+        TestcontainersSettings.ResourceReaperEnabled = false;
+    }
 
     public MQBridgeIntegrationTests()
     {
-        _container = new TestcontainersBuilder<TestcontainersContainer>()
-            .WithImage("icr.io/ibm-messaging/mq:latest")
+        var isArm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+        var image = isArm
+            // Use the developer image built from the mq-container project when running
+            // on Apple Silicon or other ARM64 machines
+            ? "ibm-mqadvanced-server-dev:9.3.3.0-arm64"
+            // Otherwise pull the official image from Docker Hub
+            : "ibmcom/mq:latest";
+
+        if (isArm && !ImageExists(image))
+        {
+            RunScript("./build-arm-mq-image.sh");
+        }
+
+        _container = new ContainerBuilder()
+            .WithImage(image)
             .WithEnvironment("LICENSE", "accept")
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
             .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
             .WithExposedPort(1414)
+            .WithPortBinding(1414, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .Build();
     }
@@ -125,5 +152,32 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+    }
+
+    private static bool ImageExists(string image)
+    {
+        var psi = new ProcessStartInfo("docker", $"image inspect {image}")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        using var proc = Process.Start(psi);
+        proc.WaitForExit();
+        return proc.ExitCode == 0;
+    }
+
+    private static void RunScript(string script)
+    {
+        var psi = new ProcessStartInfo("bash", script)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        using var proc = Process.Start(psi);
+        proc.WaitForExit();
+        if (proc.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Script {script} failed.");
+        }
     }
 }
