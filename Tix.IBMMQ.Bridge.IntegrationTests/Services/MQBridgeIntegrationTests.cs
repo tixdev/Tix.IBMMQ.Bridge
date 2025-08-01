@@ -37,7 +37,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         var image = isArm
             // Use the developer image built from the mq-container project when running
             // on Apple Silicon or other ARM64 machines
-            ? "ibm-mqadvanced-server-dev:9.3.3.0-arm64"
+            ? "ibm-mqadvanced-server-dev:9.4.3.0-arm64"
             // Otherwise pull the official image from Docker Hub
             : "ibmcom/mq:latest";
 
