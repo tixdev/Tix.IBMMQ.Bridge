@@ -10,6 +10,7 @@ using System.Collections;
 using System;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 using System.Threading;
 using Tix.IBMMQ.Bridge.Options;
@@ -18,105 +19,119 @@ using Xunit;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
-public class MQBridgeIntegrationTests : IAsyncLifetime
+public class MQBridgeTlsIntegrationTests : IAsyncLifetime
 {
+    private const string CipherSpec = "TLS_AES_256_GCM_SHA384";
     private readonly IContainer _container;
+    private readonly string _certsDir = Path.GetFullPath("certs");
 
-    // The Testcontainers resource reaper (Ryuk) cannot start under Podman
-    // because Podman refuses to hijack a chunked stream. Disabling it
-    // avoids 'cannot hijack chunked or content length stream' errors
-    // when running the integration tests.
-    static MQBridgeIntegrationTests()
+    static MQBridgeTlsIntegrationTests()
     {
         TestcontainersSettings.ResourceReaperEnabled = false;
     }
 
-    public MQBridgeIntegrationTests()
+    public MQBridgeTlsIntegrationTests()
     {
         var isArm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
-        var image = isArm
-            // Use the developer image built from the mq-container project when running
-            // on Apple Silicon or other ARM64 machines
-            ? "ibm-mqadvanced-server-dev:9.4.3.0-arm64"
-            // Otherwise pull the official image from Docker Hub
-            : "ibmcom/mq:latest";
-
+        var image = isArm ? "ibm-mqadvanced-server-dev:9.4.3.0-arm64" : "ibmcom/mq:latest";
         if (isArm && !ImageExists(image))
         {
             RunScript("./build-arm-mq-image.sh");
         }
+
+        RunScript("./generate-tls-certs.sh");
 
         _container = new ContainerBuilder()
             .WithImage(image)
             .WithEnvironment("LICENSE", "accept")
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
             .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_TLS_PWD", "passw0rd")
+            .WithBindMount(Path.Combine(_certsDir, "keys"), "/etc/mqm/pki/keys")
             .WithExposedPort(1414)
             .WithPortBinding(1414, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .Build();
     }
 
-    public async Task InitializeAsync() => await _container.StartAsync();
+    public async Task InitializeAsync()
+    {
+        await _container.StartAsync();
+        await _container.ExecAsync(new[]
+        {
+            "bash","-c",
+            $"runmqsc QM1 <<EOF\nALTER CHANNEL(DEV.APP.SVRCONN) CHLTYPE(SVRCONN) SSLCIPH({CipherSpec}) SSLCAUTH(OPTIONAL)\nREFRESH SECURITY TYPE(SSL)\nEOF"
+        });
+    }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
     [Fact]
-    public async Task Should_forward_message_between_queues()
+    public async Task Should_forward_message_between_queues_over_tls()
     {
-        var port = _container.GetMappedPublicPort(1414);
-        const string channel = "DEV.APP.SVRCONN";
-        var conn = new ConnectionOptions
+        Environment.SetEnvironmentVariable("MQSSLKEYR", Path.Combine(_certsDir, "client", "client"));
+        try
         {
-            QueueManagerName = "QM1",
-            ConnectionName = $"localhost({port})",
-            UserId = "app",
-            Password = "passw0rd"
-        };
+            var port = _container.GetMappedPublicPort(1414);
+            const string channel = "DEV.APP.SVRCONN";
+            var conn = new ConnectionOptions
+            {
+                QueueManagerName = "QM1",
+                ConnectionName = $"localhost({port})",
+                UserId = "app",
+                Password = "passw0rd",
+                UseTls = true,
+                SslCipherSpec = CipherSpec
+            };
 
-        var options = new MQBridgeOptions
-        {
-            Connections =
+            var options = new MQBridgeOptions
             {
-                ["ConnA"] = conn,
-                ["ConnB"] = conn
-            },
-            QueuePairs =
-            {
-                new QueuePairOptions
+                Connections =
                 {
-                    InboundConnection = "ConnA",
-                    InboundChannel = channel,
-                    InboundQueue = "DEV.QUEUE.1",
-                    OutboundConnection = "ConnB",
-                    OutboundChannel = channel,
-                    OutboundQueue = "DEV.QUEUE.2",
-                    PollIntervalSeconds = 1
+                    ["ConnA"] = conn,
+                    ["ConnB"] = conn
+                },
+                QueuePairs =
+                {
+                    new QueuePairOptions
+                    {
+                        InboundConnection = "ConnA",
+                        InboundChannel = channel,
+                        InboundQueue = "DEV.QUEUE.1",
+                        OutboundConnection = "ConnB",
+                        OutboundChannel = channel,
+                        OutboundQueue = "DEV.QUEUE.2",
+                        PollIntervalSeconds = 1
+                    }
                 }
-            }
-        };
+            };
 
-        PutMessage(conn, channel, "DEV.QUEUE.1", "hello");
+            PutMessage(conn, channel, "DEV.QUEUE.1", "hello");
 
-        using var host = Host.CreateDefaultBuilder()
-            .ConfigureServices(s =>
-            {
-                s.AddLogging();
-                s.AddSingleton<IHostedService, MQBridgeService>();
-                s.Configure<MQBridgeOptions>(opts =>
+            using var host = Host.CreateDefaultBuilder()
+                .ConfigureServices(s =>
                 {
-                    opts.Connections = options.Connections;
-                    opts.QueuePairs = options.QueuePairs;
-                });
-            })
-            .Build();
+                    s.AddLogging();
+                    s.AddSingleton<IHostedService, MQBridgeService>();
+                    s.Configure<MQBridgeOptions>(opts =>
+                    {
+                        opts.Connections = options.Connections;
+                        opts.QueuePairs = options.QueuePairs;
+                    });
+                })
+                .Build();
 
-        await host.StartAsync();
-        await Task.Delay(2000);
-        await host.StopAsync();
+            await host.StartAsync();
+            await Task.Delay(2000);
+            await host.StopAsync();
 
-        var message = GetMessage(conn, channel, "DEV.QUEUE.2");
-        message.ShouldBe("hello");
+            var message = GetMessage(conn, channel, "DEV.QUEUE.2");
+            message.ShouldBe("hello");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("MQSSLKEYR", null);
+        }
     }
 
     private static void PutMessage(ConnectionOptions conn, string channel, string queueName, string message)
@@ -152,12 +167,10 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
-
         if (opts.UseTls)
         {
             props[MQC.SSL_CIPHER_SPEC_PROPERTY] = opts.SslCipherSpec;
         }
-
         return props;
     }
 

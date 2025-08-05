@@ -19,7 +19,10 @@ public class ConfigurationBindingTests
         opts.ShouldNotBeNull();
         opts!.Connections.ShouldContainKey("ConnA");
         opts.QueuePairs.Count.ShouldBeGreaterThan(0);
-        opts.Connections["ConnA"].QueueManagerName.ShouldBe("QM1");
+        var conn = opts.Connections["ConnA"];
+        conn.QueueManagerName.ShouldBe("QM1");
+        conn.UseTls.ShouldBeFalse();
+        conn.SslCipherSpec.ShouldBe("TLS_AES_256_GCM_SHA384");
         opts.QueuePairs[0].InboundChannel.ShouldBe("SVRCONN.CHANNEL");
     }
 }
