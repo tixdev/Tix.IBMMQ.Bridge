@@ -47,7 +47,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             RunScript("./build-arm-mq-image.sh");
         }
 
-        var mqscPath = Path.GetFullPath("Tix.IBMMQ.Bridge.IntegrationTests/queues.mqsc");
+        var mqscPath = Path.GetFullPath("queues.mqsc");
 
         _container = new ContainerBuilder()
             .WithImage(image)
