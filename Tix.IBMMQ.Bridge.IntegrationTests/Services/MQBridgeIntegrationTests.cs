@@ -9,6 +9,7 @@ using Shouldly;
 using System.Collections;
 using System;
 using System.Runtime.InteropServices;
+using System.IO;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Threading;
@@ -46,6 +47,8 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             RunScript("./build-arm-mq-image.sh");
         }
 
+        var mqscPath = Path.GetFullPath("Tix.IBMMQ.Bridge.IntegrationTests/queues.mqsc");
+
         _container = new ContainerBuilder()
             .WithImage(image)
             .WithEnvironment("LICENSE", "accept")
@@ -54,6 +57,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithExposedPort(1414)
             .WithPortBinding(1414, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
+            .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
             .Build();
     }
 
