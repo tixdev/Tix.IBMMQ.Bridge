@@ -8,20 +8,25 @@ using Microsoft.Extensions.Hosting;
 using Shouldly;
 using System.Collections;
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.IO;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using Tix.IBMMQ.Bridge.Options;
 using Tix.IBMMQ.Bridge.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
 public class MQBridgeIntegrationTests : IAsyncLifetime
 {
-    private readonly IContainer _container;
+    private readonly ITestOutputHelper _logger;
+    private readonly IContainer _mqServer1, _mqServer2;
 
     // The Testcontainers resource reaper (Ryuk) cannot start under Podman
     // because Podman refuses to hijack a chunked stream. Disabling it
@@ -32,8 +37,9 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         TestcontainersSettings.ResourceReaperEnabled = false;
     }
 
-    public MQBridgeIntegrationTests()
+    public MQBridgeIntegrationTests(ITestOutputHelper logger)
     {
+        _logger = logger;
         var isArm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
         var image = isArm
             // Use the developer image built from the mq-container project when running
@@ -49,63 +55,145 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
 
         var mqscPath = Path.GetFullPath("queues.mqsc");
 
-        _container = new ContainerBuilder()
+        _mqServer1 = new ContainerBuilder()
             .WithImage(image)
             .WithEnvironment("LICENSE", "accept")
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
             .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_ADMIN_PASSWORD", "passw0rd")
             .WithExposedPort(1414)
             .WithPortBinding(1414, true)
+            .WithExposedPort(9443)
+            .WithPortBinding(9443, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
+            .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
+            .Build();
+
+        _mqServer2 = new ContainerBuilder()
+            .WithImage(image)
+            .WithEnvironment("LICENSE", "accept")
+            .WithEnvironment("MQ_QMGR_NAME", "QM1")
+            .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_ADMIN_PASSWORD", "passw0rd")
+            .WithExposedPort(1414)
+            .WithPortBinding(1414, true)
+            .WithExposedPort(9443)
+            .WithPortBinding(9443, true)
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
             .Build();
     }
 
-    public async Task InitializeAsync() => await _container.StartAsync();
+    public async Task InitializeAsync()
+    {
+        await _mqServer1.StartAsync();
+        await _mqServer2.StartAsync();
+    }
 
-    public async Task DisposeAsync() => await _container.DisposeAsync();
+    public async Task DisposeAsync()
+    {
+        await _mqServer1.DisposeAsync();
+        await _mqServer2.DisposeAsync();
+    }
 
     [Fact]
     public async Task Should_forward_message_between_queues()
     {
-        var port = _container.GetMappedPublicPort(1414);
+        var server1Port = _mqServer1.GetMappedPublicPort(1414);
+        var server2Port = _mqServer2.GetMappedPublicPort(1414);
+
+        var server1WebPort = _mqServer1.GetMappedPublicPort(9443);
+        var server2WebPort = _mqServer2.GetMappedPublicPort(9443);
+
+        _logger.WriteLine($"Server1 clientport {server1Port} - web https://localhost:{server1WebPort}");
+        _logger.WriteLine($"Server2 clientport {server2Port} - web https://localhost:{server2WebPort}");
+
         const string channel = "DEV.APP.SVRCONN";
-        var conn = new ConnectionOptions
+        var conn1 = new ConnectionOptions
         {
             QueueManagerName = "QM1",
-            ConnectionName = $"localhost({port})",
+            ConnectionName = $"localhost({server1Port})",
+            UserId = "app",
+            Password = "passw0rd"
+        };
+        var conn2 = new ConnectionOptions
+        {
+            QueueManagerName = "QM1",
+            ConnectionName = $"localhost({server2Port})",
             UserId = "app",
             Password = "passw0rd"
         };
 
+        var options = CreateMqBridgeOptions(conn1, conn2, channel);
+
+        options.QueuePairs.ForEach(qp =>
+        {
+            _logger.WriteLine($"Putting message on Server1 queue: {qp.InboundQueue}");
+            PutMessage(conn1, channel, qp.InboundQueue, "hello");
+        });
+
+        _logger.WriteLine("Start bridge");
+        await RunMqBridge(options);
+        
+        await Task.Delay(TimeSpan.FromSeconds(10));
+        
+        options.QueuePairs.ForEach(qp =>
+        {
+            _logger.WriteLine($"Getting message from Server2 queue: {qp.OutboundQueue}");
+            
+            var message = GetMessage(conn2, channel, qp.OutboundQueue);
+            message.ShouldBe("hello");
+        });
+        
+        //await Task.Delay(TimeSpan.FromMinutes(10));
+    }
+
+    private static MQBridgeOptions CreateMqBridgeOptions(ConnectionOptions conn1, ConnectionOptions conn2,
+        string channel)
+    {
         var options = new MQBridgeOptions
         {
             Connections =
             {
-                ["ConnA"] = conn,
-                ["ConnB"] = conn
+                ["ConnA"] = conn1,
+                ["ConnB"] = conn2
             },
-            QueuePairs =
-            {
-                new QueuePairOptions
-                {
-                    InboundConnection = "ConnA",
-                    InboundChannel = channel,
-                    InboundQueue = "DEV.QUEUE.1",
-                    OutboundConnection = "ConnB",
-                    OutboundChannel = channel,
-                    OutboundQueue = "DEV.QUEUE.2",
-                    PollIntervalSeconds = 1
-                }
-            }
+            QueuePairs = []
         };
 
-        PutMessage(conn, channel, "DEV.QUEUE.1", "hello");
+        Enumerable.Range(1, 200).Select(n => n).ToList().ForEach(n =>
+        {
+            options.QueuePairs.Add(new QueuePairOptions
+            {
+                InboundConnection = "ConnA",
+                InboundChannel = channel,
+                InboundQueue = $"DEV.QUEUE.{n}",
+                OutboundConnection = "ConnB",
+                OutboundChannel = channel,
+                OutboundQueue = $"DEV.QUEUE.{n}",
+                PollIntervalSeconds = 1
+            });
+        });
 
+        return options;
+    }
+
+    private async Task RunMqBridge(MQBridgeOptions options)
+    {
         using var host = Host.CreateDefaultBuilder()
+            .ConfigureHostOptions(o =>
+            {
+                o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+            })
+            .ConfigureLogging(logging =>
+            {
+                logging.ClearProviders();
+                logging.AddProvider(new XunitLoggerProvider(_logger));
+            })
             .ConfigureServices(s =>
             {
-                s.AddLogging();
                 s.AddSingleton<IHostedService, MQBridgeService>();
                 s.Configure<MQBridgeOptions>(opts =>
                 {
@@ -116,11 +204,6 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .Build();
 
         await host.StartAsync();
-        await Task.Delay(2000);
-        await host.StopAsync();
-
-        var message = GetMessage(conn, channel, "DEV.QUEUE.2");
-        message.ShouldBe("hello");
     }
 
     private static void PutMessage(ConnectionOptions conn, string channel, string queueName, string message)

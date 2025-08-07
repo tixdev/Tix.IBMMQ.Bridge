@@ -24,7 +24,18 @@ public class MQBridgeService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var tasks = _options.QueuePairs.Select(p => Task.Run(() => ProcessPairAsync(p, stoppingToken), stoppingToken));
+        var tasks = _options.QueuePairs
+            .Select(pair =>
+                Task.Factory
+                    .StartNew(
+                        () => ProcessPairAsync(pair, stoppingToken),
+                        stoppingToken,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default
+                    )
+                    .Unwrap()
+            );
+        
         return Task.WhenAll(tasks);
     }
 
@@ -46,8 +57,9 @@ public class MQBridgeService : BackgroundService
                 var gmo = new MQGetMessageOptions
                 {
                     Options = MQC.MQGMO_WAIT | MQC.MQGMO_SYNCPOINT,
-                    WaitInterval = 30000
+                    WaitInterval = pair.PollIntervalSeconds * 1000
                 };
+                
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
                 while (true)
@@ -78,7 +90,6 @@ public class MQBridgeService : BackgroundService
             {
                 _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}", pair.InboundQueue, pair.OutboundQueue);
             }
-
         }
     }
 
