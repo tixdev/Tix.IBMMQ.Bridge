@@ -57,7 +57,18 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .Build();
     }
 
-    public async Task InitializeAsync() => await _container.StartAsync();
+    public async Task InitializeAsync()
+    {
+        await _container.StartAsync();
+
+        var createQueues =
+            "for i in $(seq 1 200); do echo \"DEFINE QLOCAL('DEV.QUEUE.$i') REPLACE\"; done | /opt/mqm/bin/runmqsc QM1";
+        await _container.ExecAsync(new[] { "bash", "-c", createQueues });
+
+        var setAuth =
+            "/opt/mqm/bin/setmqaut -m QM1 -t queue -n DEV.QUEUE.* -p app +put +get +browse";
+        await _container.ExecAsync(new[] { "bash", "-c", setAuth });
+    }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
@@ -80,21 +91,22 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             {
                 ["ConnA"] = conn,
                 ["ConnB"] = conn
-            },
-            QueuePairs =
-            {
-                new QueuePairOptions
-                {
-                    InboundConnection = "ConnA",
-                    InboundChannel = channel,
-                    InboundQueue = "DEV.QUEUE.1",
-                    OutboundConnection = "ConnB",
-                    OutboundChannel = channel,
-                    OutboundQueue = "DEV.QUEUE.2",
-                    PollIntervalSeconds = 1
-                }
             }
         };
+
+        for (var i = 0; i < 100; i++)
+        {
+            options.QueuePairs.Add(new QueuePairOptions
+            {
+                InboundConnection = "ConnA",
+                InboundChannel = channel,
+                InboundQueue = $"DEV.QUEUE.{2 * i + 1}",
+                OutboundConnection = "ConnB",
+                OutboundChannel = channel,
+                OutboundQueue = $"DEV.QUEUE.{2 * i + 2}",
+                PollIntervalSeconds = 1
+            });
+        }
 
         PutMessage(conn, channel, "DEV.QUEUE.1", "hello");
 
