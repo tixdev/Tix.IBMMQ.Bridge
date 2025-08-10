@@ -2,18 +2,16 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge", "Tix.IBMMQ.Bridge/Tix.IBMMQ.Bridge.csproj", "{34252549-5b30-4b20-8160-f894413f080d}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge", "Tix.IBMMQ.Bridge/Tix.IBMMQ.Bridge.csproj", "{34252549-5B30-4B20-8160-F894413F080D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge.Tests", "Tix.IBMMQ.Bridge.Tests/Tix.IBMMQ.Bridge.Tests.csproj", "{9627f076-7197-40db-a072-f355b7221f59}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge.Tests", "Tix.IBMMQ.Bridge.Tests/Tix.IBMMQ.Bridge.Tests.csproj", "{9627F076-7197-40DB-A072-F355B7221F59}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge.IntegrationTests", "Tix.IBMMQ.Bridge.IntegrationTests/Tix.IBMMQ.Bridge.IntegrationTests.csproj", "{226357b9-9487-42b3-9e61-8889fab3483f}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tix.IBMMQ.Bridge.IntegrationTests", "Tix.IBMMQ.Bridge.IntegrationTests/Tix.IBMMQ.Bridge.IntegrationTests.csproj", "{226357B9-9487-42B3-9E61-8889FAB3483F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1DA26418-0648-42B4-B127-39AA39F88759}"
-    ProjectSection(SolutionItems) = preProject
-        check-arch.sh = check-arch.sh
-        build-arm-mq-image.sh = build-arm-mq-image.sh
-        run-integration-tests.sh = run-integration-tests.sh
-    EndProjectSection
+				ProjectSection(SolutionItems) = preProject
+								build-arm-mq-image.sh = build-arm-mq-image.sh
+				EndProjectSection
 EndProject
 Global
 GlobalSection(SolutionConfigurationPlatforms) = preSolution
