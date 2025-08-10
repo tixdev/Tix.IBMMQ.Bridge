@@ -27,6 +27,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _logger;
     private readonly IContainer _mqServer1, _mqServer2;
+    private readonly string _clientKdbPath = Path.Combine(Path.GetDirectoryName(typeof(MQBridgeIntegrationTests).Assembly.Location)!, "client");
 
     // The Testcontainers resource reaper (Ryuk) cannot start under Podman
     // because Podman refuses to hijack a chunked stream. Disabling it
@@ -53,7 +54,13 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             RunScript("./build-arm-mq-image.sh");
         }
 
+        var assemblyDir = Path.GetDirectoryName(typeof(MQBridgeIntegrationTests).Assembly.Location)!;
+        var createClientKdbScript = Path.Combine(assemblyDir, "create-client-kdb.sh");
+        var clientKdbDir = Path.GetDirectoryName(_clientKdbPath);
+        RunScript(createClientKdbScript, clientKdbDir);
+
         var mqscPath = Path.GetFullPath("queues.mqsc");
+        var serverKeysPath = Path.GetFullPath("certs/keys/QM1");
 
         _mqServer1 = new ContainerBuilder()
             .WithImage(image)
@@ -68,6 +75,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
+            .WithBindMount(serverKeysPath, "/var/mqm/qmgrs/QM1/ssl", AccessMode.ReadOnly)
             .Build();
 
         _mqServer2 = new ContainerBuilder()
@@ -83,6 +91,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
+            .WithBindMount(serverKeysPath, "/var/mqm/qmgrs/QM1/ssl", AccessMode.ReadOnly)
             .Build();
     }
 
@@ -145,6 +154,62 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             
             var message = GetMessage(conn2, channel, qp.OutboundQueue);
             message.ShouldBe("hello");
+        });
+    }
+
+    [Fact]
+    public async Task Should_forward_message_between_queues_with_tls()
+    {
+        var server1Port = _mqServer1.GetMappedPublicPort(1414);
+        var server2Port = _mqServer2.GetMappedPublicPort(1414);
+
+        var server1WebPort = _mqServer1.GetMappedPublicPort(9443);
+        var server2WebPort = _mqServer2.GetMappedPublicPort(9443);
+
+        _logger.WriteLine($"Server1 clientport {server1Port} - web https://localhost:{server1WebPort}");
+        _logger.WriteLine($"Server2 clientport {server2Port} - web https://localhost:{server2WebPort}");
+
+        const string channel = "TLS.APP.SVRCONN";
+        const string cipherSpec = "ANY_TLS12_OR_HIGHER";
+
+        var conn1 = new ConnectionOptions
+        {
+            QueueManagerName = "QM1",
+            ConnectionName = $"localhost({server1Port})",
+            UserId = "app",
+            Password = "passw0rd",
+            SslCipherSpec = cipherSpec,
+            SslKeyRepository = _clientKdbPath
+        };
+        var conn2 = new ConnectionOptions
+        {
+            QueueManagerName = "QM1",
+            ConnectionName = $"localhost({server2Port})",
+            UserId = "app",
+            Password = "passw0rd",
+            SslCipherSpec = cipherSpec,
+            SslKeyRepository = _clientKdbPath
+        };
+
+        var options = CreateMqBridgeOptions(conn1, conn2, channel);
+
+        options.QueuePairs.ForEach(qp =>
+        {
+            _logger.WriteLine($"Putting message on Server1 queue: {qp.InboundQueue}");
+            PutMessage(conn1, channel, qp.InboundQueue, "hello-tls");
+        });
+
+        _logger.WriteLine("Starting bridge");
+        await RunMqBridge(options);
+
+        await Task.Delay(TimeSpan.FromSeconds(10));
+
+        options.QueuePairs.ForEach(qp =>
+        {
+            _logger.WriteLine($"Getting message from Server2 queue: {qp.OutboundQueue}");
+
+            var message = GetMessage(conn2, channel, qp.OutboundQueue);
+            message.ShouldBe("hello-tls");
         });
     }
 
@@ -228,7 +293,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
     private static Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = MQBridgeService.ParseConnectionName(opts.ConnectionName);
-        return new Hashtable
+        var properties = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
@@ -237,6 +302,18 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+
+        if (!string.IsNullOrEmpty(opts.SslCipherSpec))
+        {
+            properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
+        }
+
+        if (!string.IsNullOrEmpty(opts.SslKeyRepository))
+        {
+            properties.Add("SSLKeyRepository", opts.SslKeyRepository);
+        }
+
+        return properties;
     }
 
     private static bool ImageExists(string image)
@@ -251,18 +328,22 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         return proc.ExitCode == 0;
     }
 
-    private static void RunScript(string script)
+    private static void RunScript(string script, string args = "")
     {
-        var psi = new ProcessStartInfo("bash", script)
+        var psi = new ProcessStartInfo(script, args)
         {
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(script)
         };
         using var proc = Process.Start(psi);
+        string? stdout = proc.StandardOutput.ReadToEnd();
+        string? stderr = proc.StandardError.ReadToEnd();
         proc.WaitForExit();
         if (proc.ExitCode != 0)
         {
-            throw new InvalidOperationException($"Script {script} failed.");
+            throw new InvalidOperationException($"Script '{script} {args}' failed with exit code {proc.ExitCode}.\\nSTDOUT:\\n{stdout}\\nSTDERR:\\n{stderr}");
         }
     }
 }

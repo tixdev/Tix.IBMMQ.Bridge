@@ -96,7 +96,7 @@ public class MQBridgeService : BackgroundService
     private Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = ParseConnectionName(opts.ConnectionName);
-        return new Hashtable
+        var properties = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
@@ -105,6 +105,18 @@ public class MQBridgeService : BackgroundService
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+
+        if (!string.IsNullOrEmpty(opts.SslCipherSpec))
+        {
+            properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
+        }
+
+        if (!string.IsNullOrEmpty(opts.SslKeyRepository))
+        {
+            properties.Add("SSLKeyRepository", opts.SslKeyRepository);
+        }
+
+        return properties;
     }
 
     public static (string host, int port) ParseConnectionName(string connectionName)
