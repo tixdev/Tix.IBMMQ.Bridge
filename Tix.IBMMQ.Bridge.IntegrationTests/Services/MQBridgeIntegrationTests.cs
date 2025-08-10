@@ -134,7 +134,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             PutMessage(conn1, channel, qp.InboundQueue, "hello");
         });
 
-        _logger.WriteLine("Start bridge");
+        _logger.WriteLine("Starting bridge");
         await RunMqBridge(options);
         
         await Task.Delay(TimeSpan.FromSeconds(10));
@@ -146,8 +146,6 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             var message = GetMessage(conn2, channel, qp.OutboundQueue);
             message.ShouldBe("hello");
         });
-        
-        //await Task.Delay(TimeSpan.FromMinutes(10));
     }
 
     private static MQBridgeOptions CreateMqBridgeOptions(ConnectionOptions conn1, ConnectionOptions conn2,
