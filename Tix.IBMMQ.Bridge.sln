@@ -11,6 +11,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1DA26418-0648-42B4-B127-39AA39F88759}"
 				ProjectSection(SolutionItems) = preProject
 								build-arm-mq-image.sh = build-arm-mq-image.sh
+					AGENTS.md = AGENTS.md
 				EndProjectSection
 EndProject
 Global
