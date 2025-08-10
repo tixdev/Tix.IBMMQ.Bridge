@@ -54,6 +54,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         }
 
         var mqscPath = Path.GetFullPath("queues.mqsc");
+        var certPath = Path.GetFullPath("certs/keys/QM1");
 
         _mqServer1 = new ContainerBuilder()
             .WithImage(image)
@@ -61,6 +62,10 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
             .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
             .WithEnvironment("MQ_ADMIN_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_ENABLE_TLS", "true")
+            .WithEnvironment("MQ_TLS_KEYSTORE", "/etc/mqm/pki/keys/key")
+            .WithEnvironment("MQ_TLS_PASSPHRASE", "passw0rd")
+            .WithEnvironment("MQ_TLS_CERTLABEL", "ibmwebspheremq")
             .WithExposedPort(1414)
             .WithPortBinding(1414, true)
             .WithExposedPort(9443)
@@ -68,6 +73,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
+            .WithBindMount(certPath, "/etc/mqm/pki/keys", AccessMode.ReadOnly)
             .Build();
 
         _mqServer2 = new ContainerBuilder()
@@ -76,6 +82,10 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
             .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
             .WithEnvironment("MQ_ADMIN_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_ENABLE_TLS", "true")
+            .WithEnvironment("MQ_TLS_KEYSTORE", "/etc/mqm/pki/keys/key")
+            .WithEnvironment("MQ_TLS_PASSPHRASE", "passw0rd")
+            .WithEnvironment("MQ_TLS_CERTLABEL", "ibmwebspheremq")
             .WithExposedPort(1414)
             .WithPortBinding(1414, true)
             .WithExposedPort(9443)
@@ -83,6 +93,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .WithBindMount(mqscPath, "/etc/mqm/99-queues.mqsc", AccessMode.ReadOnly)
+            .WithBindMount(certPath, "/etc/mqm/pki/keys", AccessMode.ReadOnly)
             .Build();
     }
 
@@ -136,13 +147,56 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
 
         _logger.WriteLine("Starting bridge");
         await RunMqBridge(options);
-        
+
         await Task.Delay(TimeSpan.FromSeconds(10));
-        
+
         options.QueuePairs.ForEach(qp =>
         {
             _logger.WriteLine($"Getting message from Server2 queue: {qp.OutboundQueue}");
-            
+
+            var message = GetMessage(conn2, channel, qp.OutboundQueue);
+            message.ShouldBe("hello");
+        });
+    }
+
+    [Fact]
+    public async Task Should_forward_message_between_queues_over_tls()
+    {
+        var server1Port = _mqServer1.GetMappedPublicPort(1414);
+        var server2Port = _mqServer2.GetMappedPublicPort(1414);
+
+        const string channel = "DEV.APP.SVRCONN.TLS";
+        var certFile = Path.GetFullPath("certs/keys/QM1/qmgr.crt");
+        var conn1 = new ConnectionOptions
+        {
+            QueueManagerName = "QM1",
+            ConnectionName = $"localhost({server1Port})",
+            UserId = "app",
+            Password = "passw0rd",
+            CertificatePath = certFile
+        };
+        var conn2 = new ConnectionOptions
+        {
+            QueueManagerName = "QM1",
+            ConnectionName = $"localhost({server2Port})",
+            UserId = "app",
+            Password = "passw0rd",
+            CertificatePath = certFile
+        };
+
+        var options = CreateMqBridgeOptions(conn1, conn2, channel);
+
+        options.QueuePairs.ForEach(qp =>
+        {
+            PutMessage(conn1, channel, qp.InboundQueue, "hello");
+        });
+
+        await RunMqBridge(options);
+
+        await Task.Delay(TimeSpan.FromSeconds(10));
+
+        options.QueuePairs.ForEach(qp =>
+        {
             var message = GetMessage(conn2, channel, qp.OutboundQueue);
             message.ShouldBe("hello");
         });
@@ -228,7 +282,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
     private static Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = MQBridgeService.ParseConnectionName(opts.ConnectionName);
-        return new Hashtable
+        var props = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
@@ -237,6 +291,14 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+
+        if (!string.IsNullOrEmpty(opts.CertificatePath))
+        {
+            props[MQC.SSL_CERT_STORE_PROPERTY] = opts.CertificatePath;
+            props[MQC.SSL_CIPHER_SPEC_PROPERTY] = "ANY_TLS12";
+        }
+
+        return props;
     }
 
     private static bool ImageExists(string image)
