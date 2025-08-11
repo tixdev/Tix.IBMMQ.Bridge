@@ -13,6 +13,9 @@
     <ProjectReference Include="..\Tix.IBMMQ.Bridge\Tix.IBMMQ.Bridge.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="reliability-test-queues.mqsc">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="queues.mqsc">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
