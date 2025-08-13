@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
 {
-    internal class MqContainer(ContainerImage image): IAsyncLifetime
+    public class MqContainer(ContainerImage image): IAsyncLifetime
     {
         const string MqAppUser = "app";
         const string MqAdminUser = "admin";

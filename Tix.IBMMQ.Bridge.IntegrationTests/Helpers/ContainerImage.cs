@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -9,7 +10,7 @@ using DotNet.Testcontainers.Containers;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
 {
-    internal class ContainerImage
+    public class ContainerImage
     {
         static string name;
         public string Name { get { return name; } }
@@ -58,10 +59,11 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
     static class ContainerImageExtensions
     {
         public static MqContainer BuildMqContainer(this ContainerImage image,
-            string mqStartupScriptPath = null,
+            string mqStartupScriptFileName,
             bool exposeWebConsole = false)
         {
-            return new MqContainer(image).Build(mqStartupScriptPath, exposeWebConsole);
+            var mqscPath = Path.GetFullPath(mqStartupScriptFileName);
+            return new MqContainer(image).Build(mqscPath, exposeWebConsole);
         }
     }
 }

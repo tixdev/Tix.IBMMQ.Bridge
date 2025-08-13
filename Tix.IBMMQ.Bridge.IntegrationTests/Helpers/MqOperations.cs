@@ -63,5 +63,22 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INQUIRE | MQC.MQOO_FAIL_IF_QUIESCING);
             return queue.CurrentDepth;
         }
+
+        public static int GetQueueMaxDepth(this ConnectionOptions conn, string channel, string queueName)
+        {
+            var props = BuildProperties(conn, channel);
+            using var qMgr = new MQQueueManager(conn.QueueManagerName, props);
+            using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INQUIRE | MQC.MQOO_FAIL_IF_QUIESCING);
+            return queue.MaximumDepth;
+        }
+
+        public static int GetQueueMaxMessageAvailableLength(this ConnectionOptions conn, string channel, string queueName)
+        {
+            var props = BuildProperties(conn, channel);
+            using var qMgr = new MQQueueManager(conn.QueueManagerName, props);
+            using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INQUIRE | MQC.MQOO_FAIL_IF_QUIESCING);
+            // Remove 128 bytes for message metadata overhead
+            return queue.MaximumMessageLength - 128;
+        }
     }
 }

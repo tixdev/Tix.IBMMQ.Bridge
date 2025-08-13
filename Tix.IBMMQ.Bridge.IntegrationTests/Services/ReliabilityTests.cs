@@ -1,148 +1,106 @@
-using DotNet.Testcontainers;
-using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
-using DotNet.Testcontainers.Containers;
-using IBM.WMQ;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Shouldly;
-using System.Collections;
 using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using System.IO;
-using System.Diagnostics;
-using System.Linq;
 using System.Threading.Tasks;
-using System.Threading;
-using Microsoft.Extensions.Logging;
-using Tix.IBMMQ.Bridge.Options;
-using Tix.IBMMQ.Bridge.Services;
 using Xunit;
 using Xunit.Abstractions;
 using Tix.IBMMQ.Bridge.IntegrationTests.Helpers;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
-public class ReliabilityTests : IAsyncLifetime
+public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
 {
+    public const string Channel = "DEV.APP.SVRCONN";
+    public const string QueueName = "RELIABILITY.TEST";
+
     private readonly ITestOutputHelper _logger;
-    private readonly MqContainer _mqServerIn, _mqServerOut;
+    private readonly ReliabilityTestsFixture _fixture;
 
     static ReliabilityTests()
     {
         TestcontainersSettings.ResourceReaperEnabled = false;
     }
 
-    public ReliabilityTests(ITestOutputHelper logger)
+    public ReliabilityTests(ITestOutputHelper logger, ReliabilityTestsFixture fixture)
     {
         _logger = logger;
-        var imageIn = new ContainerImage(/*old ver*/); // TODO: usare la versione 9.1 per il server di Inbound, diversa da Outbound
-        var imageOut = new ContainerImage(); 
-
-        var mqscPath = Path.GetFullPath("reliability-test-queues.mqsc");
-        _mqServerIn = imageIn.BuildMqContainer(mqStartupScriptPath: mqscPath);
-        _mqServerOut = imageOut.BuildMqContainer(mqStartupScriptPath: mqscPath);
+        _fixture = fixture;
+        _fixture.InitBridge(_logger, Channel, QueueName);
     }
 
-    public async Task InitializeAsync()
+    private async Task InitTestAsync()
     {
-        await _mqServerIn.InitializeAsync();
-        await _mqServerOut.InitializeAsync();
+        _fixture.ConnIn.DrainQueue(Channel, QueueName);
+        _fixture.ConnOut.DrainQueue(Channel, QueueName);
+
+        await _fixture.RestartBridge();
     }
 
-    public async Task DisposeAsync()
+    private int GetOutQueueDepth() => _fixture.ConnOut.GetQueueMaxDepth(Channel, QueueName);
+
+    [Fact]
+    public async Task Should_not_lose_messages_after_a_failure()
     {
-        await _mqServerIn.DisposeAsync();
-        await _mqServerOut.DisposeAsync();
+        await InitTestAsync();
+
+        int maxOutDepth = GetOutQueueDepth();
+        int maxMsgLength = _fixture.ConnOut.GetQueueMaxMessageAvailableLength(Channel, QueueName);
+
+        int msgToSend = Random.Shared.Next(0, maxOutDepth - 1);
+        int msgStuck = maxOutDepth - msgToSend;
+
+        for (var i = 0; i < maxOutDepth; i++)
+        {
+            int txtSize = maxMsgLength;
+            // Force an error exceeding the message size
+            txtSize += (msgToSend == i ? 1 : 0);
+            _fixture.ConnIn.PutMessage(Channel, QueueName, new string('x', txtSize));
+        }
+
+        bool result = await TestHelper.Evaluate(_logger, () =>
+        {
+            _logger.WriteLine($"Expected {msgToSend} messages moved to the destination queue but {msgStuck} messages stuck in the source queue");
+            int totIn = _fixture.ConnIn.GetQueueDepth(Channel, QueueName);
+            int totOut = _fixture.ConnOut.GetQueueDepth(Channel, QueueName);
+            _logger.WriteLine($"Destination queue {totOut}, Source queue {totIn}");
+            return totIn == msgStuck && totOut == msgToSend;
+        });
+
+        result.ShouldBeTrue();
+
+        await _fixture.StopBridge();
     }
 
     [Fact]
     public async Task Should_not_lose_messages_when_outbound_queue_is_full()
     {
-        const string channel = "DEV.APP.SVRCONN";
-        const string inboundQueueName = "RELIABILITY.IN";
-        const string outboundQueueName = "RELIABILITY.OUT";
+        await InitTestAsync();
 
-        var connIn = _mqServerIn.GetMqConnectionOptions();
-        var connOut = _mqServerOut.GetMqConnectionOptions();
+        const int extraMsg = 5;
+        int maxOutDepth = GetOutQueueDepth();
+        int totMsgToPut = maxOutDepth + extraMsg;
 
-        // 1a. Clean the queues
-        _logger.WriteLine($"Cleaning queues {inboundQueueName} and {outboundQueueName}");
-        connIn.DrainQueue(channel, inboundQueueName);
-        connOut.DrainQueue(channel, outboundQueueName);
+        _logger.WriteLine($"Putting {totMsgToPut} messages on {QueueName}");
+        for (var i = 0; i < totMsgToPut; i++)
+            _fixture.ConnIn.PutMessage(Channel, QueueName, $"Message {i}");
 
-        // 1b. Put 100 messages on the inbound queue
-        _logger.WriteLine($"Putting 100 messages on {inboundQueueName}");
-        for (var i = 0; i < 100; i++)
-            connIn.PutMessage(channel, inboundQueueName, $"Message {i}");
-
-        // 1c. Configure and run the bridge
-        var options = CreateMqBridgeOptions(connIn, connOut, channel, inboundQueueName, outboundQueueName);
-        _logger.WriteLine("Starting MQ Bridge Service and wait ");
-        await RunWaitStopMqBridge(options, 3);
-
-        // 1e. Verify final queue depths
-        _logger.WriteLine("Verifying queue depths...");
-        connIn.GetQueueDepth(channel, inboundQueueName).ShouldBe(5);
-        connOut.GetQueueDepth(channel, outboundQueueName).ShouldBe(95);
-
-        _logger.WriteLine("Test finished successfully.");
-    }
-
-    private static MQBridgeOptions CreateMqBridgeOptions(ConnectionOptions conn1, ConnectionOptions conn2,
-        string channel, string inboundQueue, string outboundQueue)
-    {
-        return new MQBridgeOptions
+        bool result = await TestHelper.Evaluate(_logger, () =>
         {
-            Connections =
-            {
-                ["ConnA"] = conn1,
-                ["ConnB"] = conn2
-            },
-            QueuePairs =
-            [
-                new()
-                {
-                    InboundConnection = "ConnA",
-                    InboundChannel = channel,
-                    InboundQueue = inboundQueue,
-                    OutboundConnection = "ConnB",
-                    OutboundChannel = channel,
-                    OutboundQueue = outboundQueue,
-                    PollIntervalSeconds = 1
-                }
-            ]
-        };
+            _logger.WriteLine($"Expected {maxOutDepth} messages moved to the destination queue but {extraMsg} messages stuck in the source queue");
+            int totIn = _fixture.ConnIn.GetQueueDepth(Channel, QueueName);
+            int totOut = _fixture.ConnOut.GetQueueDepth(Channel, QueueName);
+            _logger.WriteLine($"Destination queue {totOut}, Source queue {totIn}");
+            return totIn == extraMsg && totOut == maxOutDepth;
+        });
+
+        result.ShouldBeTrue();
+
+        await _fixture.StopBridge();
     }
 
-    private async Task RunWaitStopMqBridge(MQBridgeOptions options, int waitSeconds)
-    {
-        using var host = Host.CreateDefaultBuilder()
-            .ConfigureHostOptions(o =>
-            {
-                o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost;
-            })
-            .ConfigureLogging(logging =>
-            {
-                logging.ClearProviders();
-                logging.AddProvider(new XunitLoggerProvider(_logger));
-            })
-            .ConfigureServices(s =>
-            {
-                s.AddSingleton<IHostedService, MQBridgeService>();
-                s.Configure<MQBridgeOptions>(opts =>
-                {
-                    opts.Connections = options.Connections;
-                    opts.QueuePairs = options.QueuePairs;
-                });
-            })
-            .Build();
-
-        await host.StartAsync();
-
-        await Task.Delay(TimeSpan.FromSeconds(waitSeconds));
-
-        await host.StopAsync();
-    }
+    //[Fact]
+    //public async Task Should_not_lose_messages_when_outbound_queue_manager_is_unavailable()
+    //{
+    ////    TODO
+    //}
 }

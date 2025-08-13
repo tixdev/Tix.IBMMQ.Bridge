@@ -1,0 +1,7 @@
+* Set queue depth (tot messages) or message size (in byte) for test purpose
+DEFINE QLOCAL('RELIABILITY.TEST') MAXDEPTH(95) MAXMSGL(256)
+
+SET AUTHREC PROFILE('RELIABILITY.TEST') OBJTYPE(QUEUE) PRINCIPAL('app') AUTHADD(ALLMQI)
+
+
+
