@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
@@ -13,8 +14,16 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
         {
             var appSettingsPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
 
+            // Navigates up from bin/Debug/net8.0 to the solution root
+            var solutionDir = Directory.GetParent(Directory.GetCurrentDirectory())?.Parent?.Parent?.Parent?.FullName
+                            ?? throw new DirectoryNotFoundException("Cannot find the solution directory.");
+
             _container = new ContainerBuilder()
-                .WithImage("tix-ibmmq-bridge:latest") // Assuming a local image is built
+                .WithImage(new ImageFromDockerfileBuilder()
+                    .WithName($"tix-ibmmq-bridge-e2e:{Guid.NewGuid()}")
+                    .WithDockerfileDirectory(solutionDir)
+                    .WithDockerfile("Tix.IBMMQ.Bridge/Dockerfile") // Relative to DockerfileDirectory
+                    .Build())
                 .WithName($"mq-bridge-e2e-{Path.GetRandomFileName()}")
                 .WithMount(appSettingsPath, "/app/appsettings.json")
                 .Build();

@@ -16,12 +16,13 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             _connectionOptions = connectionOptions;
         }
 
-        private MQQueueManager CreateQueueManager()
+        private MQQueueManager CreateQueueManager(string channel)
         {
             var properties = new Hashtable
             {
                 { MQC.HOST_NAME_PROPERTY, _connectionOptions.ConnectionName.Split('(')[0] },
                 { MQC.PORT_PROPERTY, int.Parse(_connectionOptions.ConnectionName.Split('(')[1].TrimEnd(')')) },
+                { MQC.CHANNEL_PROPERTY, channel },
                 { MQC.USER_ID_PROPERTY, _connectionOptions.UserId },
                 { MQC.PASSWORD_PROPERTY, _connectionOptions.Password }
             };
@@ -32,7 +33,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
         {
             try
             {
-                using var qMgr = CreateQueueManager();
+                using var qMgr = CreateQueueManager(channel);
                 qMgr.Disconnect();
                 return true;
             }
@@ -44,7 +45,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
         public void PutMessage(string channel, string queueName, string messageText, string correlationId = null)
         {
-            using var qMgr = CreateQueueManager();
+            using var qMgr = CreateQueueManager(channel);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
 
             var message = new MQMessage();
@@ -59,7 +60,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
         public string GetMessage(string channel, string queueName, string correlationId, int timeoutSeconds)
         {
-            using var qMgr = CreateQueueManager();
+            using var qMgr = CreateQueueManager(channel);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INPUT | MQC.MQOO_FAIL_IF_QUIESCING);
 
             var message = new MQMessage();
