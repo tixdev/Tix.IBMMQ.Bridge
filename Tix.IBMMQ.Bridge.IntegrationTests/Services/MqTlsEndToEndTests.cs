@@ -12,7 +12,7 @@ public class MqTlsEndToEndTests
         var props = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, "2.tcp.eu.ngrok.io" },
-            { MQC.PORT_PROPERTY, 13149 },
+            { MQC.PORT_PROPERTY, 17083 },
             { MQC.CHANNEL_PROPERTY, "APP.TLS.SVRCONN" },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_CLIENT },
             { MQC.SSL_CIPHER_SPEC_PROPERTY, "TLS_RSA_WITH_AES_128_CBC_SHA256" }
