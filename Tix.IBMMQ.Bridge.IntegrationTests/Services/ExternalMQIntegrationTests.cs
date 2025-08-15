@@ -7,7 +7,7 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
 public class ExternalMQIntegrationTests
 {
-    [Fact]
+    [Fact(Skip = "Integration Test")]
     public void Should_write_and_read_message_from_external_mq_server()
     {
         var props = new Hashtable

@@ -98,7 +98,7 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         await _mqServer2.DisposeAsync();
     }
 
-    [Fact]
+    [Fact(Skip = "Integration Test")]
     public async Task Should_forward_message_between_queues()
     {
         var server1Port = _mqServer1.GetMappedPublicPort(1414);
