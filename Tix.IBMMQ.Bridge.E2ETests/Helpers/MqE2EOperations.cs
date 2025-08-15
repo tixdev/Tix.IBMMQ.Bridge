@@ -61,7 +61,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
         public string GetMessage(string channel, string queueName, string correlationId, int timeoutSeconds)
         {
             using var qMgr = CreateQueueManager(channel);
-            using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INPUT | MQC.MQOO_FAIL_IF_QUIESCING);
+            using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
 
             var message = new MQMessage();
             if (correlationId != null)
