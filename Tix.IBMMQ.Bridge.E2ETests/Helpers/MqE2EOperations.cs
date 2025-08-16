@@ -9,6 +9,14 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 {
     public class MqE2EOperations
     {
+        private static byte[] ToCorrelationId(string correlationId)
+        {
+            var corrBytes = Encoding.UTF8.GetBytes(correlationId ?? string.Empty);
+            var corrId = new byte[24];
+            Array.Clear(corrId, 0, corrId.Length);
+            Array.Copy(corrBytes, corrId, Math.Min(corrBytes.Length, corrId.Length));
+            return corrId;
+        }
         private readonly ConnectionOptions _connectionOptions;
 
         public MqE2EOperations(ConnectionOptions connectionOptions)
@@ -57,7 +65,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             message.WriteString(messageText);
             if (correlationId != null)
             {
-                message.CorrelationId = Encoding.UTF8.GetBytes(correlationId);
+                message.CorrelationId = ToCorrelationId(correlationId);
             }
 
             queue.Put(message);
@@ -71,7 +79,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             var message = new MQMessage();
             if (correlationId != null)
             {
-                message.CorrelationId = Encoding.UTF8.GetBytes(correlationId);
+                message.CorrelationId = ToCorrelationId(correlationId);
             }
 
             var gmo = new MQGetMessageOptions();
