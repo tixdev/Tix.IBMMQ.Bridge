@@ -18,19 +18,15 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
         public BridgeContainer()
         {
-            var appSettingsPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
-
             _imageName = $"tix-ibmmq-bridge-e2e_{Guid.NewGuid()}";
-
             _image = new ImageFromDockerfileBuilder()
                 .WithName(_imageName)
                 .WithDockerfileDirectory(GetBridgeSolutionProjectDir())
-                //.WithDockerfile("Tix.IBMMQ.Bridge/Dockerfile")
                 .Build();
 
+            var appSettingsPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
             _container = new ContainerBuilder()
                 .WithImage(_image)
-                .WithName(_imageName)
                 .WithBindMount(appSettingsPath, "/app/appsettings.json")
                 .Build();
         }
@@ -66,30 +62,30 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
             using var client = new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
 
-            // Trova e rimuovi la dangling image dello stage di build
-            try
-            {
-                var images = await client.Images.ListImagesAsync(new ImagesListParameters { All = true });
-                var mainImage = images.FirstOrDefault(img => img.RepoTags != null && img.RepoTags.Contains(_imageName));
-                if (mainImage != null)
-                {
-                    // Ottieni dettagli dell'immagine per accedere a Parent
-                    var mainImageDetails = await client.Images.InspectImageAsync(mainImage.ID);
-                    var parentId = mainImageDetails.Parent;
-                    if (!string.IsNullOrEmpty(parentId))
-                    {
-                        var buildStageImage = images.FirstOrDefault(img => img.ID == parentId && (img.RepoTags == null || img.RepoTags.All(tag => tag.StartsWith("<none>"))));
-                        if (buildStageImage != null)
-                        {
-                            await client.Images.DeleteImageAsync(buildStageImage.ID, new ImageDeleteParameters { Force = true });
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignora eventuali errori di rimozione
-            }
+            // // Trova e rimuovi la dangling image dello stage di build
+            // try
+            // {
+            //     var images = await client.Images.ListImagesAsync(new ImagesListParameters { All = true });
+            //     var mainImage = images.FirstOrDefault(img => img.RepoTags != null && img.RepoTags.Contains(_imageName));
+            //     if (mainImage != null)
+            //     {
+            //         // Ottieni dettagli dell'immagine per accedere a Parent
+            //         var mainImageDetails = await client.Images.InspectImageAsync(mainImage.ID);
+            //         var parentId = mainImageDetails.Parent;
+            //         if (!string.IsNullOrEmpty(parentId))
+            //         {
+            //             var buildStageImage = images.FirstOrDefault(img => img.ID == parentId && (img.RepoTags == null || img.RepoTags.All(tag => tag.StartsWith("<none>"))));
+            //             if (buildStageImage != null)
+            //             {
+            //                 await client.Images.DeleteImageAsync(buildStageImage.ID, new ImageDeleteParameters { Force = true });
+            //             }
+            //         }
+            //     }
+            // }
+            // catch
+            // {
+            //     // Ignora eventuali errori di rimozione
+            // }
 
             try
             {

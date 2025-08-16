@@ -18,10 +18,14 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
         private MQQueueManager CreateQueueManager(string channel)
         {
+            var host = _connectionOptions.ConnectionName.Split('(')[0]
+                // Hack: normalize host for Ibm mq server used in container
+                .Replace("host.docker.internal", "localhost");
+            var port = int.Parse(_connectionOptions.ConnectionName.Split('(')[1].TrimEnd(')'));
             var properties = new Hashtable
             {
-                { MQC.HOST_NAME_PROPERTY, _connectionOptions.ConnectionName.Split('(')[0] },
-                { MQC.PORT_PROPERTY, int.Parse(_connectionOptions.ConnectionName.Split('(')[1].TrimEnd(')')) },
+                { MQC.HOST_NAME_PROPERTY, host },
+                { MQC.PORT_PROPERTY, port },
                 { MQC.CHANNEL_PROPERTY, channel },
                 { MQC.USER_ID_PROPERTY, _connectionOptions.UserId },
                 { MQC.PASSWORD_PROPERTY, _connectionOptions.Password }
@@ -37,8 +41,9 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
                 qMgr.Disconnect();
                 return true;
             }
-            catch (MQException)
+            catch (MQException ex)
             {
+                Console.WriteLine($"MQException: {ex.ReasonCode} - {ex.Message}");
                 return false;
             }
         }
