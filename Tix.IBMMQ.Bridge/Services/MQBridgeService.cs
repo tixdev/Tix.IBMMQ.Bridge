@@ -35,7 +35,7 @@ public class MQBridgeService : BackgroundService
                     )
                     .Unwrap()
             );
-        
+
         return Task.WhenAll(tasks);
     }
 
@@ -59,7 +59,7 @@ public class MQBridgeService : BackgroundService
                     Options = MQC.MQGMO_WAIT | MQC.MQGMO_SYNCPOINT,
                     WaitInterval = pair.PollIntervalSeconds * 1000
                 };
-                
+
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
                 while (true)
@@ -96,7 +96,7 @@ public class MQBridgeService : BackgroundService
     private Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = ParseConnectionName(opts.ConnectionName);
-        return new Hashtable
+        var props = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
@@ -105,6 +105,14 @@ public class MQBridgeService : BackgroundService
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+
+        if (!string.IsNullOrEmpty(opts.CertificatePath))
+        {
+            props[MQC.SSL_CERT_STORE_PROPERTY] = opts.CertificatePath;
+            props[MQC.SSL_CIPHER_SPEC_PROPERTY] = "ANY_TLS12";
+        }
+
+        return props;
     }
 
     public static (string host, int port) ParseConnectionName(string connectionName)
