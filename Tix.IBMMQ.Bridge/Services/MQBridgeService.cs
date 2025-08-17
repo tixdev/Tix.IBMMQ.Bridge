@@ -96,7 +96,7 @@ public class MQBridgeService : BackgroundService
     private Hashtable BuildProperties(ConnectionOptions opts, string channel)
     {
         var (host, port) = ParseConnectionName(opts.ConnectionName);
-        return new Hashtable
+        var properties = new Hashtable
         {
             { MQC.HOST_NAME_PROPERTY, host },
             { MQC.PORT_PROPERTY, port },
@@ -105,6 +105,49 @@ public class MQBridgeService : BackgroundService
             { MQC.PASSWORD_PROPERTY, opts.Password },
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
+
+        // Add TLS/SSL properties if enabled
+        if (opts.UseTls)
+        {
+            _logger.LogInformation("Configuring TLS connection for {QueueManager}", opts.QueueManagerName);
+            
+            // SSL Cipher Specification - support for elliptic curve cryptography
+            if (!string.IsNullOrEmpty(opts.SslCipherSpec))
+            {
+                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
+                _logger.LogInformation("Using SSL Cipher Spec: {CipherSpec}", opts.SslCipherSpec);
+            }
+
+            // SSL Key Repository (certificate store)
+            if (!string.IsNullOrEmpty(opts.SslKeyRepository))
+            {
+                properties.Add("MQSSLKEYR", opts.SslKeyRepository);
+                _logger.LogInformation("Using SSL Key Repository: {KeyRepository}", opts.SslKeyRepository);
+            }
+
+            // SSL Certificate Label  
+            if (!string.IsNullOrEmpty(opts.SslCertLabel))
+            {
+                properties.Add("MQSSLCERTLABEL", opts.SslCertLabel);
+                _logger.LogInformation("Using SSL Certificate Label: {CertLabel}", opts.SslCertLabel);
+            }
+
+            // FIPS mode
+            if (opts.SslFipsRequired)
+            {
+                properties.Add("MQSSLFIPS", true);
+                _logger.LogInformation("SSL FIPS mode enabled");
+            }
+
+            // Peer name verification
+            if (opts.SslPeerNameRequired)
+            {
+                properties.Add("MQSSLPEERNAME", host);
+                _logger.LogInformation("SSL Peer name verification enabled for: {Host}", host);
+            }
+        }
+
+        return properties;
     }
 
     public static (string host, int port) ParseConnectionName(string connectionName)
