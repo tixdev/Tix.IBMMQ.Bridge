@@ -41,7 +41,7 @@ public class MQBridgeService : BackgroundService
 
     private async Task ProcessPairAsync(QueuePairOptions pair, CancellationToken token)
     {
-        while (!token.IsCancellationRequested)
+        while (true)
         {
             try
             {
@@ -64,9 +64,11 @@ public class MQBridgeService : BackgroundService
 
                 while (true)
                 {
+                    //must be insert logic to reconnect every x cycles without messages
                     var message = new MQMessage();
                     try
                     {
+                        _logger.LogInformation("Getting message on {Inbound}", pair.InboundQueue);
                         inboundQueue.Get(message, gmo);
                         _logger.LogInformation("Received message from {Inbound}", pair.InboundQueue);
                         outboundQueue.Put(message, pmo);
@@ -76,7 +78,7 @@ public class MQBridgeService : BackgroundService
                     }
                     catch (MQException ex) when (ex.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
                     {
-                        break;
+                        _logger.LogInformation("No message available on {Inbound}", pair.InboundQueue);
                     }
                     catch (Exception)
                     {
@@ -89,6 +91,7 @@ public class MQBridgeService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}", pair.InboundQueue, pair.OutboundQueue);
+                await Task.Delay(TimeSpan.FromSeconds(1));
             }
         }
     }
@@ -103,7 +106,9 @@ public class MQBridgeService : BackgroundService
             { MQC.CHANNEL_PROPERTY, channel },
             { MQC.USER_ID_PROPERTY, opts.UserId },
             { MQC.PASSWORD_PROPERTY, opts.Password },
-            { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
+            { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED },
+            { MQC.SSL_CIPHER_SPEC_PROPERTY, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384" },
+            { MQC.APPNAME_PROPERTY, "Tix.IBMMQ.Bridge" }
         };
     }
 

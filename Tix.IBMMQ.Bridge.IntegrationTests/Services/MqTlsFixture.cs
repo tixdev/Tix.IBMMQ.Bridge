@@ -1,8 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
@@ -15,17 +17,15 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
 public sealed class MqTlsFixture : IAsyncLifetime
 {
-    public IContainer Container { get; private set; } = default!;
+    public IContainer MqServer1 { get; private set; } = default!;
+    public IContainer MqServer2 { get; private set; } = default!;
     public INetwork Network { get; private set; } = default!;
     public string MqAlias => "mq";
-    public int MqInternalPort => 1414;
-    public int Port { get; private set; }
-    public int WebPort { get; private set; }
-
+    
     public string Host => "localhost";
 
     public string TrustDir => _trustDir;
-    
+
     private string _workDir = default!;
     private string _keysDir = default!;
     private string _trustDir = default!;
@@ -36,7 +36,7 @@ public sealed class MqTlsFixture : IAsyncLifetime
     {
         Network = new NetworkBuilder().Build();
         await Network.CreateAsync();
-        
+
         _workDir = Directory.CreateTempSubdirectory("mqtls").FullName;
         _keysDir = Path.Combine(_workDir, "keys", "qm1");
         _trustDir = Path.Combine(_workDir, "trust", "clients");
@@ -49,18 +49,40 @@ public sealed class MqTlsFixture : IAsyncLifetime
         WriteMqPemFiles(_keysDir, _trustDir, _caCert, _serverCert);
 
         var mqscPath = Path.Combine(_workDir, "99-config.mqsc");
-        File.WriteAllText(mqscPath, string.Join(Environment.NewLine, new[]
+
+        var sb = new StringBuilder();
+        
+        Enumerable.Range(1, 1000).ToList().ForEach(n =>
         {
+            sb.AppendLine($"DEFINE QLOCAL('DEV.QUEUE.{n}') REPLACE");
+        });
+        
+        await File.WriteAllTextAsync(mqscPath, string.Join(Environment.NewLine, 
             "ALTER QMGR CHLAUTH(ENABLED)",
-            "DEFINE QLOCAL('DEV.QUEUE.1') REPLACE",
+            sb.ToString(), 
             "DEFINE CHANNEL('APP.TLS.SVRCONN') CHLTYPE(SVRCONN) TRPTYPE(TCP) " +
             "SSLCIPH(ANY_TLS12_OR_HIGHER) SSLCAUTH(OPTIONAL) REPLACE",
-            // regola CHLAUTH permissiva solo per test
             "SET CHLAUTH('APP.TLS.SVRCONN') TYPE(ADDRESSMAP) ADDRESS('*') USERSRC(CHANNEL) ACTION(ADD)",
-            "REFRESH SECURITY TYPE(SSL)"
-        }));
+            "REFRESH SECURITY TYPE(SSL)"));
 
-        Container = new ContainerBuilder()
+        MqServer1 = new ContainerBuilder()
+            .WithImage("ibm-mqadvanced-server-dev:9.4.3.0-arm64")
+            .WithEnvironment("LICENSE", "accept")
+            .WithEnvironment("MQ_QMGR_NAME", "QM1")
+            .WithEnvironment("MQ_APP_PASSWORD", "passw0rd")
+            .WithEnvironment("MQ_ADMIN_PASSWORD", "passw0rd")
+            .WithBindMount(_keysDir, "/etc/mqm/pki/keys/qm1", AccessMode.ReadOnly)
+            .WithBindMount(_trustDir, "/etc/mqm/pki/trust/clients", AccessMode.ReadOnly)
+            .WithBindMount(mqscPath, "/etc/mqm/99-config.mqsc", AccessMode.ReadOnly)
+            .WithPortBinding(1414, assignRandomHostPort: true)
+            .WithPortBinding(9443, assignRandomHostPort: true)
+            .WithNetwork(Network)
+            .WithNetworkAliases(MqAlias)
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1414))
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
+            .Build();
+        
+        MqServer2 = new ContainerBuilder()
             .WithImage("ibm-mqadvanced-server-dev:9.4.3.0-arm64")
             .WithEnvironment("LICENSE", "accept")
             .WithEnvironment("MQ_QMGR_NAME", "QM1")
@@ -77,23 +99,25 @@ public sealed class MqTlsFixture : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(9443))
             .Build();
 
-        await Container.StartAsync();
-        Port = Container.GetMappedPublicPort(1414);
-        WebPort = Container.GetMappedPublicPort(9443);
+        await MqServer1.StartAsync();
+        await MqServer2.StartAsync();
 
         TrustCaOnHost(_caCert, Path.Combine(_trustDir, "ca.crt"));
-        
-        //await VerifyTlsFromClientContainerAsync();
     }
 
     private static void TrustCaOnHost(X509Certificate2 caCert, string caPemPath)
     {
-        if (OperatingSystem.IsWindows())
+        using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
         {
-            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadWrite);
             store.Add(caCert);
-            store.Close();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            var certFileName = Path.GetFileName(caPemPath);
+            RunCli("sudo", $"cp {caPemPath} /usr/local/share/ca-certificates/{certFileName}");
+            RunCli("sudo", "update-ca-certificates");
         }
         else if (OperatingSystem.IsMacOS())
         {
@@ -120,8 +144,9 @@ public sealed class MqTlsFixture : IAsyncLifetime
             var loginKeychain = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Library/Keychains/login.keychain-db");
-            
-            var res = RunCliCapture("security", $"find-certificate -a -Z -c \"{caCommonName}\" \"{loginKeychain}\"", ignoreErrors: true);
+
+            var res = RunCliCapture("security", $"find-certificate -a -Z -c \"{caCommonName}\" \"{loginKeychain}\"",
+                ignoreErrors: true);
             var matches = Regex.Matches(res.stdout, @"SHA-1 hash:\s*([A-F0-9]{40})");
 
             foreach (Match m in matches)
@@ -156,7 +181,8 @@ public sealed class MqTlsFixture : IAsyncLifetime
                 $"{fileName} {args}\nExitCode={p.ExitCode}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}");
     }
 
-    private static (int exitCode, string stdout, string stderr) RunCliCapture(string fileName, string args, bool ignoreErrors = false)
+    private static (int exitCode, string stdout, string stderr) RunCliCapture(string fileName, string args,
+        bool ignoreErrors = false)
     {
         var psi = new ProcessStartInfo
         {
@@ -177,49 +203,33 @@ public sealed class MqTlsFixture : IAsyncLifetime
 
         return (p.ExitCode, stdout, stderr);
     }
-    
-    private async Task VerifyTlsFromClientContainerAsync()
-    {
-        var script = $@"
-set -e
-apt-get update
-apt-get install -y --no-install-recommends ca-certificates openssl
-cp /ca/ca.crt /usr/local/share/ca-certificates/testmq-ca.crt
-update-ca-certificates
-# Verifica TLS su MQ (1414) e WebConsole (9443) usando verify_return_error
-echo '== TLS check MQ 1414 =='
-openssl s_client -verify_return_error -connect host.docker.internal:{Port} -servername localhost </dev/null > /tmp/mq_tls.txt 2>&1 || (cat /tmp/mq_tls.txt; exit 1)
-echo '== TLS check MQ Web 9443 =='
-openssl s_client -verify_return_error -connect host.docker.internal:{WebPort} -servername localhost </dev/null > /tmp/web_tls.txt 2>&1 || (cat /tmp/web_tls.txt; exit 1)
-echo 'OK'
-";
-        
-        var client = new ContainerBuilder()
-            .WithImage("debian:12-slim")
-            .WithBindMount(_trustDir, "/ca", AccessMode.ReadOnly)
-            .WithCommand("/bin/sh", "-lc", script)
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("OK"))
-            .Build();
 
-        await client.StartAsync();
-        await client.DisposeAsync();
-    }
-    
     public async Task DisposeAsync()
     {
         try
         {
             UntrustCaOnHost("TestMQ-CA");
         }
-        catch { /* best effort */ }
+        catch
+        {
+            /* best effort */
+        }
 
-        if (Container != null) await Container.DisposeAsync();
-        
-        if (Network != null) await Network.DisposeAsync();
-        
-        try { Directory.Delete(_workDir, recursive: true); } catch { /* ignore */ }
+        await MqServer1.DisposeAsync();
+        await MqServer2.DisposeAsync();
+
+        await Network.DisposeAsync();
+
+        try
+        {
+            Directory.Delete(_workDir, recursive: true);
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
-    
+
     private static X509Certificate2 CreateCertificateAuthority(string cn)
     {
         using var rsa = RSA.Create(2048);
@@ -283,10 +293,10 @@ echo 'OK'
     {
         Directory.CreateDirectory(keysDir);
         Directory.CreateDirectory(trustDir);
-        
+
         WritePem(Path.Combine(trustDir, "ca.crt"), "CERTIFICATE", caCert.Export(X509ContentType.Cert));
         WritePem(Path.Combine(keysDir, "server.crt"), "CERTIFICATE", serverCert.Export(X509ContentType.Cert));
-        
+
         using var rsa = serverCert.GetRSAPrivateKey()
                         ?? throw new InvalidOperationException(
                             "Il certificato server non ha una private key associata.");
