@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Shouldly;
+using Tix.IBMMQ.Bridge.E2ETests.Helpers;
 using Xunit;
 
 namespace Tix.IBMMQ.Bridge.E2ETests
@@ -28,27 +29,16 @@ namespace Tix.IBMMQ.Bridge.E2ETests
         }
 
         [Fact]
-        public async Task Should_transfer_message_from_source_to_destination()
+        public void Should_transfer_message_from_source_to_destination()
         {
             var correlationId = Guid.NewGuid().ToString();
             var messageText = $"E2E-Test-{correlationId}";
 
             _fixture.MqInOps.PutMessage(_fixture.InboundChannel, _fixture.InboundQueue, messageText, correlationId);
 
-            var stopwatch = Stopwatch.StartNew();
-            string receivedMessage = null;
-            while (stopwatch.Elapsed.TotalSeconds < 5)
-            {
-                receivedMessage = _fixture.MqOutOps.GetMessage(_fixture.OutboundChannel, _fixture.OutboundQueue, correlationId, 1);
-                if (receivedMessage != null)
-                {
-                    break;
-                }
-                await Task.Delay(200);
-            }
-
-            receivedMessage.ShouldNotBeNull("Message was not received at the destination queue within the 5-second timeout.");
-            receivedMessage.ShouldBe(messageText);
+            _fixture.MqOutOps.GetMessage(_fixture.OutboundChannel, _fixture.OutboundQueue, 5000, correlationId)
+                .ShouldNotBeNull("Message was not received at the destination queue within the 5-second timeout.")
+                .ShouldBe(messageText);
         }
     }
 }

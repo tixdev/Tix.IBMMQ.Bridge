@@ -2,3 +2,4 @@
 **/obj/
 Tix.IBMMQ.Bridge.sln.DotSettings.user
 /.vs
+/Tix.IBMMQ.Bridge.E2ETests/appsettings.actual.json

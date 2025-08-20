@@ -35,7 +35,7 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
         private static Hashtable BuildProperties(ConnectionOptions opts, string channel)
         {
             var (host, port) = MQBridgeService.ParseConnectionName(opts.ConnectionName);
-            return new Hashtable
+            var properties = new Hashtable
             {
                 { MQC.HOST_NAME_PROPERTY, host },
                 { MQC.PORT_PROPERTY, port },
@@ -44,6 +44,11 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
                 { MQC.PASSWORD_PROPERTY, opts.Password },
                 { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
             };
+
+            if (opts.UseTls)
+                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
+
+            return properties;
         }
 
         public static void PutMessage(this ConnectionOptions conn, string channel, string queueName, string message)

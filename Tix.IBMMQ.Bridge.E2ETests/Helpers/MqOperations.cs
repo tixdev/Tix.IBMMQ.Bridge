@@ -1,13 +1,12 @@
 using System;
 using System.Collections;
 using System.Text;
-using System.Threading;
 using IBM.WMQ;
 using Tix.IBMMQ.Bridge.Options;
 
 namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 {
-    public class MqE2EOperations
+    public class MqOperations
     {
         private static byte[] ToCorrelationId(string correlationId)
         {
@@ -19,7 +18,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
         }
         private readonly ConnectionOptions _connectionOptions;
 
-        public MqE2EOperations(ConnectionOptions connectionOptions)
+        public MqOperations(ConnectionOptions connectionOptions)
         {
             _connectionOptions = connectionOptions;
         }
@@ -38,6 +37,10 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
                 { MQC.USER_ID_PROPERTY, _connectionOptions.UserId },
                 { MQC.PASSWORD_PROPERTY, _connectionOptions.Password }
             };
+
+            if (_connectionOptions.UseTls)
+                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, _connectionOptions.SslCipherSpec);
+
             return new MQQueueManager(_connectionOptions.QueueManagerName, properties);
         }
 
@@ -71,7 +74,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             queue.Put(message);
         }
 
-        public string GetMessage(string channel, string queueName, string correlationId, int timeoutSeconds)
+        public string GetMessage(string channel, string queueName, int timeoutMs, string correlationId = null)
         {
             using var qMgr = CreateQueueManager(channel);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
@@ -84,7 +87,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
             var gmo = new MQGetMessageOptions();
             gmo.Options = MQC.MQGMO_WAIT | MQC.MQGMO_FAIL_IF_QUIESCING;
-            gmo.WaitInterval = timeoutSeconds * 1000;
+            gmo.WaitInterval = timeoutMs;
 
             try
             {

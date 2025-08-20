@@ -53,7 +53,8 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
                 QueueManagerName = MqManagerName,
                 ConnectionName = $"localhost({_container.GetMappedPublicPort(MqPort)})",
                 UserId = MqAppUser,
-                Password = Password
+                Password = Password,
+                UseTls = false
             };
     }
 }

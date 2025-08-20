@@ -9,8 +9,8 @@ namespace Tix.IBMMQ.Bridge.E2ETests
     public class ReliabilityE2ETestsFixture : IAsyncLifetime
     {
         private BridgeContainer _bridgeContainer;
-        public MqE2EOperations MqInOps { get; private set; }
-        public MqE2EOperations MqOutOps { get; private set; }
+        public MqOperations MqInOps { get; private set; }
+        public MqOperations MqOutOps { get; private set; }
         public ConnectionOptions ConnIn { get; private set; }
         public ConnectionOptions ConnOut { get; private set; }
         public string InboundChannel { get; private set; }
@@ -33,8 +33,8 @@ namespace Tix.IBMMQ.Bridge.E2ETests
             OutboundChannel = queuePair.OutboundChannel;
             OutboundQueue = queuePair.OutboundQueue;
 
-            MqInOps = new MqE2EOperations(ConnIn);
-            MqOutOps = new MqE2EOperations(ConnOut);
+            MqInOps = new MqOperations(ConnIn);
+            MqOutOps = new MqOperations(ConnOut);
 
             _bridgeContainer = new BridgeContainer();
             await _bridgeContainer.StartAsync();

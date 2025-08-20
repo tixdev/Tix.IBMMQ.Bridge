@@ -7,6 +7,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using DotNet.Testcontainers.Images;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 {
@@ -18,7 +19,7 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
         public BridgeContainer()
         {
-            _imageName = $"tix-ibmmq-bridge-e2e_{Guid.NewGuid()}";
+            _imageName = $"ibmmq-bridge-e2e_{Guid.NewGuid()}";
             _image = new ImageFromDockerfileBuilder()
                 .WithName(_imageName)
                 .WithDockerfileDirectory(GetBridgeSolutionProjectDir())
@@ -44,7 +45,6 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             return bridgeSolutionProjectDir;
         }
 
-
         public async Task StartAsync()
         {
             await _image.CreateAsync(); // Assicura che l'immagine sia creata prima di avviare il container
@@ -62,31 +62,6 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 
             using var client = new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
 
-            // // Trova e rimuovi la dangling image dello stage di build
-            // try
-            // {
-            //     var images = await client.Images.ListImagesAsync(new ImagesListParameters { All = true });
-            //     var mainImage = images.FirstOrDefault(img => img.RepoTags != null && img.RepoTags.Contains(_imageName));
-            //     if (mainImage != null)
-            //     {
-            //         // Ottieni dettagli dell'immagine per accedere a Parent
-            //         var mainImageDetails = await client.Images.InspectImageAsync(mainImage.ID);
-            //         var parentId = mainImageDetails.Parent;
-            //         if (!string.IsNullOrEmpty(parentId))
-            //         {
-            //             var buildStageImage = images.FirstOrDefault(img => img.ID == parentId && (img.RepoTags == null || img.RepoTags.All(tag => tag.StartsWith("<none>"))));
-            //             if (buildStageImage != null)
-            //             {
-            //                 await client.Images.DeleteImageAsync(buildStageImage.ID, new ImageDeleteParameters { Force = true });
-            //             }
-            //         }
-            //     }
-            // }
-            // catch
-            // {
-            //     // Ignora eventuali errori di rimozione
-            // }
-
             try
             {
                 await client.Images.DeleteImageAsync(_imageName, new ImageDeleteParameters { Force = true });
@@ -94,6 +69,35 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             catch (DockerImageNotFoundException)
             {
                 // L'immagine potrebbe già essere stata rimossa, ignora l'eccezione
+            }
+
+            await RemoveDanglingImagesAsync(client);
+        }
+
+        private async Task RemoveDanglingImagesAsync(DockerClient client)
+        {
+            var containers = await client.Containers.ListContainersAsync(new ContainersListParameters { All = true });
+            var imagesInUse = new HashSet<string>(containers.Select(c => c.ImageID));
+
+            var danglingImages = await client.Images.ListImagesAsync(new ImagesListParameters
+            {
+                Filters = new Dictionary<string, IDictionary<string, bool>>
+                {
+                    { "dangling", new Dictionary<string, bool> { { "true", true } } }
+                }
+            });
+
+
+            foreach (var image in danglingImages.Where(x => !imagesInUse.Contains(x.ID)))
+            {
+                try
+                {
+                    await client.Images.DeleteImageAsync(image.ID, new ImageDeleteParameters { Force = true });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to delete image {image.ID}: {ex.Message}");
+                }
             }
         }
     }

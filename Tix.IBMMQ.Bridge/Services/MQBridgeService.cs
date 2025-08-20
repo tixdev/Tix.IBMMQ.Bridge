@@ -16,6 +16,9 @@ public class MQBridgeService : BackgroundService
     private readonly ILogger<MQBridgeService> _logger;
     private readonly MQBridgeOptions _options;
 
+    private static readonly (int Min, int Max) BridgeErrorDelayRangeMs = (5000, 3600000);
+    private static readonly (int Min, int Max) MQWaitIntervalRangeMs = (30000, 60000);
+
     public MQBridgeService(IOptions<MQBridgeOptions> options, ILogger<MQBridgeService> logger)
     {
         _options = options.Value;
@@ -41,6 +44,8 @@ public class MQBridgeService : BackgroundService
 
     private async Task ProcessPairAsync(QueuePairOptions pair, CancellationToken token)
     {
+        int delayMsAfterError = BridgeErrorDelayRangeMs.Min;
+
         while (!token.IsCancellationRequested)
         {
             try
@@ -57,7 +62,7 @@ public class MQBridgeService : BackgroundService
                 var gmo = new MQGetMessageOptions
                 {
                     Options = MQC.MQGMO_WAIT | MQC.MQGMO_SYNCPOINT,
-                    WaitInterval = pair.PollIntervalSeconds * 1000
+                    WaitInterval = Random.Shared.Next(MQWaitIntervalRangeMs.Min, MQWaitIntervalRangeMs.Max)
                 };
                 
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
@@ -85,10 +90,18 @@ public class MQBridgeService : BackgroundService
                         throw;
                     }
                 }
+
+                delayMsAfterError = BridgeErrorDelayRangeMs.Min;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}", pair.InboundQueue, pair.OutboundQueue);
+                if (delayMsAfterError >= BridgeErrorDelayRangeMs.Max)
+                    _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}: {exc}", pair.InboundQueue, pair.OutboundQueue, ex.Message);
+                else
+                    _logger.LogWarning(ex, "Error processing pair {Inbound}->{Outbound}: {exc}. Retry in {delay} ms", pair.InboundQueue, pair.OutboundQueue, ex.Message, delayMsAfterError);
+
+                await Task.Delay(delayMsAfterError, token);
+                delayMsAfterError = Math.Min(delayMsAfterError * 2, BridgeErrorDelayRangeMs.Max);
             }
         }
     }
@@ -106,45 +119,12 @@ public class MQBridgeService : BackgroundService
             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
         };
 
-        // Add TLS/SSL properties if enabled
         if (opts.UseTls)
         {
-            _logger.LogInformation("Configuring TLS connection for {QueueManager}", opts.QueueManagerName);
-            
-            // SSL Cipher Specification - support for elliptic curve cryptography
-            if (!string.IsNullOrEmpty(opts.SslCipherSpec))
-            {
-                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
-                _logger.LogInformation("Using SSL Cipher Spec: {CipherSpec}", opts.SslCipherSpec);
-            }
-
-            // SSL Key Repository (certificate store)
-            if (!string.IsNullOrEmpty(opts.SslKeyRepository))
-            {
-                properties.Add("MQSSLKEYR", opts.SslKeyRepository);
-                _logger.LogInformation("Using SSL Key Repository: {KeyRepository}", opts.SslKeyRepository);
-            }
-
-            // SSL Certificate Label  
-            if (!string.IsNullOrEmpty(opts.SslCertLabel))
-            {
-                properties.Add("MQSSLCERTLABEL", opts.SslCertLabel);
-                _logger.LogInformation("Using SSL Certificate Label: {CertLabel}", opts.SslCertLabel);
-            }
-
-            // FIPS mode
-            if (opts.SslFipsRequired)
-            {
-                properties.Add("MQSSLFIPS", true);
-                _logger.LogInformation("SSL FIPS mode enabled");
-            }
-
-            // Peer name verification
-            if (opts.SslPeerNameRequired)
-            {
-                properties.Add("MQSSLPEERNAME", host);
-                _logger.LogInformation("SSL Peer name verification enabled for: {Host}", host);
-            }
+            if (string.IsNullOrEmpty(opts.SslCipherSpec))
+                throw new InvalidOperationException("No SSL Cipher Spec specified: use SslCipherSpec connection property");
+             
+            properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opts.SslCipherSpec);
         }
 
         return properties;
