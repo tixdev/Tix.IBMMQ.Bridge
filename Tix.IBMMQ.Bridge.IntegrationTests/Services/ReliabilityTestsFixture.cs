@@ -3,9 +3,6 @@ using Tix.IBMMQ.Bridge.Options;
 using Xunit;
 using Xunit.Abstractions;
 using Tix.IBMMQ.Bridge.IntegrationTests.Helpers;
-using Microsoft.Extensions.Logging;
-using System.Threading.Channels;
-using System;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 

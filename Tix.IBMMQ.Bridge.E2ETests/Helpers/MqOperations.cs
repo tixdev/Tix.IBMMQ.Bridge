@@ -6,49 +6,34 @@ using Tix.IBMMQ.Bridge.Options;
 
 namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
 {
-    public class MqOperations
+    public static class MqOperations
     {
-        private static byte[] ToCorrelationId(string correlationId)
+        private static MQQueueManager CreateQueueManager(this ConnectionOptions opt, string channel)
         {
-            var corrBytes = Encoding.UTF8.GetBytes(correlationId ?? string.Empty);
-            var corrId = new byte[24];
-            Array.Clear(corrId, 0, corrId.Length);
-            Array.Copy(corrBytes, corrId, Math.Min(corrBytes.Length, corrId.Length));
-            return corrId;
-        }
-        private readonly ConnectionOptions _connectionOptions;
-
-        public MqOperations(ConnectionOptions connectionOptions)
-        {
-            _connectionOptions = connectionOptions;
-        }
-
-        private MQQueueManager CreateQueueManager(string channel)
-        {
-            var host = _connectionOptions.ConnectionName.Split('(')[0]
+            var host = opt.ConnectionName.Split('(')[0]
                 // Hack: normalize host for Ibm mq server used in container
                 .Replace("host.docker.internal", "localhost");
-            var port = int.Parse(_connectionOptions.ConnectionName.Split('(')[1].TrimEnd(')'));
+            var port = int.Parse(opt.ConnectionName.Split('(')[1].TrimEnd(')'));
             var properties = new Hashtable
             {
                 { MQC.HOST_NAME_PROPERTY, host },
                 { MQC.PORT_PROPERTY, port },
                 { MQC.CHANNEL_PROPERTY, channel },
-                { MQC.USER_ID_PROPERTY, _connectionOptions.UserId },
-                { MQC.PASSWORD_PROPERTY, _connectionOptions.Password }
+                { MQC.USER_ID_PROPERTY, opt.UserId },
+                { MQC.PASSWORD_PROPERTY, opt.Password }
             };
 
-            if (_connectionOptions.UseTls)
-                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, _connectionOptions.SslCipherSpec);
+            if (opt.UseTls)
+                properties.Add(MQC.SSL_CIPHER_SPEC_PROPERTY, opt.SslCipherSpec);
 
-            return new MQQueueManager(_connectionOptions.QueueManagerName, properties);
+            return new MQQueueManager(opt.QueueManagerName, properties);
         }
 
-        public bool IsReachable(string channel)
+        public static bool IsReachable(this ConnectionOptions opt, string channel)
         {
             try
             {
-                using var qMgr = CreateQueueManager(channel);
+                using var qMgr = opt.CreateQueueManager(channel);
                 qMgr.Disconnect();
                 return true;
             }
@@ -59,9 +44,9 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             }
         }
 
-        public void PutMessage(string channel, string queueName, string messageText, string correlationId = null)
+        public static void PutMessage(this ConnectionOptions opt, string channel, string queueName, string messageText, string correlationId = null)
         {
-            using var qMgr = CreateQueueManager(channel);
+            using var qMgr = opt.CreateQueueManager(channel);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
 
             var message = new MQMessage();
@@ -74,9 +59,9 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             queue.Put(message);
         }
 
-        public string GetMessage(string channel, string queueName, int timeoutMs, string correlationId = null)
+        public static string GetMessage(this ConnectionOptions opt, string channel, string queueName, int timeoutMs, string correlationId = null)
         {
-            using var qMgr = CreateQueueManager(channel);
+            using var qMgr = opt.CreateQueueManager(channel);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_INPUT_AS_Q_DEF | MQC.MQOO_FAIL_IF_QUIESCING);
 
             var message = new MQMessage();
@@ -98,6 +83,15 @@ namespace Tix.IBMMQ.Bridge.E2ETests.Helpers
             {
                 return null;
             }
+        }
+
+        private static byte[] ToCorrelationId(string correlationId)
+        {
+            var corrBytes = Encoding.UTF8.GetBytes(correlationId ?? string.Empty);
+            var corrId = new byte[24];
+            Array.Clear(corrId, 0, corrId.Length);
+            Array.Copy(corrBytes, corrId, Math.Min(corrBytes.Length, corrId.Length));
+            return corrId;
         }
     }
 }

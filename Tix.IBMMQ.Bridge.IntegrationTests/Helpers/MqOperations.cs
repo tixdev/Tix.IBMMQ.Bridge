@@ -52,13 +52,23 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
         }
 
         public static void PutMessage(this ConnectionOptions conn, string channel, string queueName, string message)
+            => PutMessages(conn, channel, queueName, new[] { message });
+
+        public static void PutMessages(this ConnectionOptions conn, string channel, string queueName, string[] messages)
         {
             var props = BuildProperties(conn, channel);
             using var qMgr = new MQQueueManager(conn.QueueManagerName, props);
             using var queue = qMgr.AccessQueue(queueName, MQC.MQOO_OUTPUT | MQC.MQOO_FAIL_IF_QUIESCING);
+
+            qMgr.Begin();
             var mqMessage = new MQMessage();
-            mqMessage.WriteString(message);
-            queue.Put(mqMessage); // Not using syncpoint for test setup simplicity
+            foreach (var msg in messages)
+            {
+                mqMessage.ClearMessage();
+                mqMessage.WriteString(msg);
+                queue.Put(mqMessage); // Not using syncpoint for test setup simplicity
+            }
+            qMgr.Commit();
         }
 
         public static int GetQueueDepth(this ConnectionOptions conn, string channel, string queueName)

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using Tix.IBMMQ.Bridge.Options;
+using System.Collections.Generic;
 
 namespace Tix.IBMMQ.Bridge.Services;
 
@@ -16,8 +17,11 @@ public class MQBridgeService : BackgroundService
     private readonly ILogger<MQBridgeService> _logger;
     private readonly MQBridgeOptions _options;
 
-    private static readonly (int Min, int Max) BridgeErrorDelayRangeMs = (5000, 3600000);
-    private static readonly (int Min, int Max) MQWaitIntervalRangeMs = (30000, 60000);
+    private static readonly List<int> retryDelaySequenceMs = 
+        // Retry strategy: set here the min and max seconds to wait after an error. It builds a time sequence
+        GetRetryDelaySequence(5, 1800);
+
+    private static readonly (int Min, int Max) mqWaitIntervalRangeSec = (30, 60);
 
     public MQBridgeService(IOptions<MQBridgeOptions> options, ILogger<MQBridgeService> logger)
     {
@@ -44,15 +48,20 @@ public class MQBridgeService : BackgroundService
 
     private async Task ProcessPairAsync(QueuePairOptions pair, CancellationToken token)
     {
-        int delayMsAfterError = BridgeErrorDelayRangeMs.Min;
+        int delaysAfterError = retryDelaySequenceMs[0];
+
+        var inbound = _options.Connections[pair.InboundConnection];
+        var outbound = _options.Connections[pair.OutboundConnection];
+
+        _logger.LogInformation("{from} > {to}: {queue}", 
+            inbound.ConnectionName, outbound.ConnectionName,
+            pair.InboundQueue + (pair.InboundQueue != pair.OutboundQueue ? $" > {pair.OutboundQueue}" : null)
+            );
 
         while (!token.IsCancellationRequested)
         {
             try
             {
-                var inbound = _options.Connections[pair.InboundConnection];
-                var outbound = _options.Connections[pair.OutboundConnection];
-
                 using var inboundQMgr = new MQQueueManager(inbound.QueueManagerName, BuildProperties(inbound, pair.InboundChannel));
                 using var outboundQMgr = new MQQueueManager(outbound.QueueManagerName, BuildProperties(outbound, pair.OutboundChannel));
 
@@ -62,9 +71,9 @@ public class MQBridgeService : BackgroundService
                 var gmo = new MQGetMessageOptions
                 {
                     Options = MQC.MQGMO_WAIT | MQC.MQGMO_SYNCPOINT,
-                    WaitInterval = Random.Shared.Next(MQWaitIntervalRangeMs.Min, MQWaitIntervalRangeMs.Max)
+                    WaitInterval = Random.Shared.Next(mqWaitIntervalRangeSec.Min * 1000, mqWaitIntervalRangeSec.Max * 1000)
                 };
-                
+
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
                 while (true)
@@ -83,7 +92,7 @@ public class MQBridgeService : BackgroundService
                     {
                         break;
                     }
-                    catch (Exception)
+                    catch
                     {
                         inboundQMgr.Backout();
                         outboundQMgr.Backout();
@@ -91,19 +100,41 @@ public class MQBridgeService : BackgroundService
                     }
                 }
 
-                delayMsAfterError = BridgeErrorDelayRangeMs.Min;
+                delaysAfterError = retryDelaySequenceMs[0];
             }
             catch (Exception ex)
             {
-                if (delayMsAfterError >= BridgeErrorDelayRangeMs.Max)
+                if (delaysAfterError == retryDelaySequenceMs.Last())
                     _logger.LogError(ex, "Error processing pair {Inbound}->{Outbound}: {exc}", pair.InboundQueue, pair.OutboundQueue, ex.Message);
                 else
-                    _logger.LogWarning(ex, "Error processing pair {Inbound}->{Outbound}: {exc}. Retry in {delay} ms", pair.InboundQueue, pair.OutboundQueue, ex.Message, delayMsAfterError);
+                    _logger.LogWarning(ex, "Error processing pair {Inbound}->{Outbound}: {exc}. Retry in {delay} ms", pair.InboundQueue, pair.OutboundQueue, ex.Message, delaysAfterError);
 
-                await Task.Delay(delayMsAfterError, token);
-                delayMsAfterError = Math.Min(delayMsAfterError * 2, BridgeErrorDelayRangeMs.Max);
+                await Task.Delay(delaysAfterError, token);
+
+                int nextIdx = retryDelaySequenceMs.FindIndex(x => x > delaysAfterError);
+                if (nextIdx >= 0) 
+                    delaysAfterError = retryDelaySequenceMs[nextIdx];
             }
         }
+    }
+
+    /// Es GetRetryDelaySequenceMs(5, 1800): wait between 5 to 1800 sec (30 min)
+    /// Result sequence in seconds:
+    /// 5 > 7.03 > 14.06 > 28.12 > 56.25 > 112.5 > 225 > 450 > 900 > 1800
+    static List<int> GetRetryDelaySequence(int minSeconds, int maxSeconds)
+    {
+        var delays = new List<int>();
+        int next = maxSeconds;
+        while (next > minSeconds)
+        {
+            delays.Add(next * 1000); // Convert in ms
+            next /= 2;
+        }
+
+        delays.Add(minSeconds * 1000); // Start from min
+        delays.Reverse();
+
+        return delays;
     }
 
     private Hashtable BuildProperties(ConnectionOptions opts, string channel)

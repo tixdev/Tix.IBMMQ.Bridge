@@ -6,13 +6,12 @@ using Microsoft.Extensions.Configuration;
 using Tix.IBMMQ.Bridge.E2ETests.Helpers;
 using Tix.IBMMQ.Bridge.Options;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Tix.IBMMQ.Bridge.E2ETests
 {
-    public class ReliabilityE2ETestsFixture(ITestOutputHelper logger) : IAsyncLifetime
+    public class ReliabilityE2ETestsFixtureNoDocker : IAsyncLifetime
     {
-        private MqBridgeHost _bridge;
+        private MqBridgeContainer _bridgeContainer;
         private MQBridgeOptions _mqBridgeOptions;
 
         public ConnectionOptions ConnIn => _mqBridgeOptions.Connections["In"];
@@ -24,15 +23,19 @@ namespace Tix.IBMMQ.Bridge.E2ETests
             var appSettingsReduxPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.actual.json");
             _mqBridgeOptions = MQBridgeOptions.ParseJsonReduxVerion(appSettingsReduxPath);
 
-            var opt = MQBridgeOptions.ParseJsonReduxVerion(appSettingsReduxPath);
-            _bridge = new MqBridgeHost(logger, opt);
-            await _bridge.StartAsync();
+            var appSettingsFinal = Path.Combine(Path.GetTempPath(), Path.GetTempFileName());
+            File.WriteAllText(appSettingsFinal, _mqBridgeOptions.Serialize());
+
+            _bridgeContainer = new MqBridgeContainer(appSettingsFinal);
+            await _bridgeContainer.StartAsync();
         }
 
         public async Task DisposeAsync()
         {
-            if (_bridge != null)
-                await _bridge.StopAsync(System.Threading.CancellationToken.None);
+            if (_bridgeContainer != null)
+            {
+                await _bridgeContainer.DisposeAsync();
+            }
         }
     }
 }

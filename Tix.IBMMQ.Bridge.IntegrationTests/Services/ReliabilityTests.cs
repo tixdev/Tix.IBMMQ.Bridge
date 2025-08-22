@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 using Tix.IBMMQ.Bridge.IntegrationTests.Helpers;
+using System.Linq;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
@@ -12,6 +14,7 @@ public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
 {
     public const string Channel = "DEV.APP.SVRCONN";
     public const string QueueName = "RELIABILITY.TEST";
+    public const string QueueName2 = "RELIABILITY.TESTBIG";
 
     private readonly ITestOutputHelper _logger;
     private readonly ReliabilityTestsFixture _fixture;
@@ -67,7 +70,6 @@ public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
         });
 
         result.ShouldBeTrue();
-
         await _fixture.StopBridge();
     }
 
@@ -94,13 +96,32 @@ public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
         });
 
         result.ShouldBeTrue();
-
         await _fixture.StopBridge();
     }
 
-    //[Fact]
-    //public async Task Should_not_lose_messages_when_outbound_queue_manager_is_unavailable()
-    //{
-    ////    TODO
-    //}
+    [Fact]
+    public async Task Should_not_lose_messages_when_outbound_queue_manager_is_unavailable()
+    {
+        await InitTestAsync();
+
+        todo
+        // 1) crare una coppia CODA > CODA BIG e avviare l'host
+        // 2) verificare che non impieghi cosi tanto ad inviare i 5000 messaggi
+        // 3) verificare quanto impiega a scodarli
+        // 4) interrompere durante lo scodamento il server out, verificare che i messaggi siano ancora tutti
+        // poi riavviarlo e veriifcare che completi lo scodamento
+
+        var messages = Enumerable.Range(0, 5000).Select(i => $"Message {i}").ToArray();
+        _fixture.ConnIn.PutMessages(Channel, QueueName, messages);
+
+        bool result = await TestHelper.Evaluate(_logger, () =>
+        {
+            int totIn = _fixture.ConnIn.GetQueueDepth(Channel, QueueName);
+            int totOut = _fixture.ConnOut.GetQueueDepth(Channel, QueueName);
+            return totIn == 0 && totOut == 5000;
+        });
+
+        result.ShouldBeTrue();
+        await _fixture.StopBridge();
+    }
 }
