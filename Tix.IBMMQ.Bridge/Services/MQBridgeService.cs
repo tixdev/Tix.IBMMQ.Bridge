@@ -17,9 +17,13 @@ public class MQBridgeService : BackgroundService
     private readonly ILogger<MQBridgeService> _logger;
     private readonly MQBridgeOptions _options;
 
-    private static readonly List<int> retryDelaySequenceMs = 
-        // Retry strategy: set here the min and max seconds to wait after an error. It builds a time sequence
-        GetRetryDelaySequence(5, 1800);
+    private static readonly List<int> retryDelaySequenceMs =
+    // Retry strategy: set here the min and max seconds to wait after an error. It builds a time sequence
+#if DEBUG
+    GetRetryDelaySequence(1, 5);
+#else
+    GetRetryDelaySequence(5, 1800);
+#endif
 
     private static readonly (int Min, int Max) mqWaitIntervalRangeSec = (30, 60);
 
@@ -31,6 +35,10 @@ public class MQBridgeService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        stoppingToken.Register(() =>
+            _logger.LogInformation("Cancellation requested!")
+        );
+
         var tasks = _options.QueuePairs
             .Select(pair =>
                 Task.Factory
@@ -42,7 +50,7 @@ public class MQBridgeService : BackgroundService
                     )
                     .Unwrap()
             );
-        
+
         return Task.WhenAll(tasks);
     }
 
@@ -76,7 +84,7 @@ public class MQBridgeService : BackgroundService
 
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
-                while (true)
+                while (!token.IsCancellationRequested)
                 {
                     var message = new MQMessage();
                     try
@@ -84,18 +92,22 @@ public class MQBridgeService : BackgroundService
                         inboundQueue.Get(message, gmo);
                         _logger.LogInformation("Received message from {Inbound}", pair.InboundQueue);
                         outboundQueue.Put(message, pmo);
-                        inboundQMgr.Commit();
                         outboundQMgr.Commit();
+                        inboundQMgr.Commit();
                         _logger.LogInformation("Forwarded message to {Outbound}", pair.OutboundQueue);
                     }
-                    catch (MQException ex) when (ex.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
+                    catch (MQException mqEx) when (mqEx.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
                     {
                         break;
                     }
                     catch
                     {
-                        inboundQMgr.Backout();
-                        outboundQMgr.Backout();
+                        if (inboundQMgr.IsConnected)
+                            inboundQMgr.Backout();
+
+                        if (outboundQMgr.IsConnected)
+                            outboundQMgr.Backout();
+
                         throw;
                     }
                 }
@@ -109,11 +121,14 @@ public class MQBridgeService : BackgroundService
                 else
                     _logger.LogWarning(ex, "Error processing pair {Inbound}->{Outbound}: {exc}. Retry in {delay} ms", pair.InboundQueue, pair.OutboundQueue, ex.Message, delaysAfterError);
 
-                await Task.Delay(delaysAfterError, token);
+                if (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(delaysAfterError, token);
 
-                int nextIdx = retryDelaySequenceMs.FindIndex(x => x > delaysAfterError);
-                if (nextIdx >= 0) 
-                    delaysAfterError = retryDelaySequenceMs[nextIdx];
+                    int nextIdx = retryDelaySequenceMs.FindIndex(x => x > delaysAfterError);
+                    if (nextIdx >= 0)
+                        delaysAfterError = retryDelaySequenceMs[nextIdx];
+                }
             }
         }
     }

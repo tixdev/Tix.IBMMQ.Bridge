@@ -21,9 +21,9 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
             ITestOutputHelper logger,
             Func<bool> test,
             bool timeDependentTest = true,
-            int timoutSeconds = 5)
+            int timeoutSeconds = 5)
         {
-            var timeout = TimeSpan.FromSeconds(timoutSeconds);
+            var timeout = TimeSpan.FromSeconds(timeoutSeconds);
             var interval = TimeSpan.FromMilliseconds(500);
             var startTime = DateTime.UtcNow;
 

@@ -8,10 +8,8 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Services;
 
 public class ReliabilityTestsFixture : IAsyncLifetime
 {
-    private MqContainer MqServerIn { get; set; }
-    private MqContainer MqServerOut { get; set; }
-    public ConnectionOptions ConnIn { get; private set; }
-    public ConnectionOptions ConnOut { get; private set; }
+    public MqContainer MqIn { get; set; }
+    public MqContainer MqOut { get; set; }
     private MqBridgeHost MqBridge { get; set; }
 
     public ReliabilityTestsFixture()
@@ -20,8 +18,8 @@ public class ReliabilityTestsFixture : IAsyncLifetime
         var imageIn = new ContainerImage(/*old ver*/);
         var imageOut = new ContainerImage();
 
-        MqServerIn = imageIn.BuildMqContainer("reliability-test-in.mqsc");
-        MqServerOut = imageOut.BuildMqContainer("reliability-test-out.mqsc");
+        MqIn = imageIn.BuildMqContainer("reliability-test-in.mqsc");
+        MqOut = imageOut.BuildMqContainer("reliability-test-out.mqsc");
     }
 
     public async Task InitializeAsync()
@@ -29,12 +27,8 @@ public class ReliabilityTestsFixture : IAsyncLifetime
         try
         {
             // Avvia i server MQ
-            await MqServerIn.InitializeAsync();
-            await MqServerOut.InitializeAsync();
-
-            // Ottieni le opzioni di connessione
-            ConnIn = MqServerIn.GetMqConnectionOptions();
-            ConnOut = MqServerOut.GetMqConnectionOptions();
+            await MqIn.InitializeAsync();
+            await MqOut.InitializeAsync();
         }
         catch
         {
@@ -43,14 +37,15 @@ public class ReliabilityTestsFixture : IAsyncLifetime
         }
     }
 
-    public void InitBridge(ITestOutputHelper logger, string channel, string queueName)
+    public void InitBridge(ITestOutputHelper logger, params (string Channel, string QueueName)[] pairs)
     {
         if (MqBridge != null)
             return; // Bridge already initialized
 
         MqBridge = new MqBridgeHost(logger);
-        MqBridge.SetConnections(ConnIn, ConnOut);
-        MqBridge.AddQueuePair(channel, queueName);
+        MqBridge.SetConnections(MqIn.Connection, MqOut.Connection);
+        foreach(var p in pairs)
+            MqBridge.AddQueuePair(p.Channel, p.QueueName);
     }
 
     public async Task RestartBridge() => await MqBridge.RestartAsync();
@@ -63,7 +58,7 @@ public class ReliabilityTestsFixture : IAsyncLifetime
         if (MqBridge != null)
             await MqBridge.StopAsync();
 
-        await MqServerIn.DisposeAsync();
-        await MqServerOut.DisposeAsync();
+        await MqIn.DisposeAsync();
+        await MqOut.DisposeAsync();
     }
 }

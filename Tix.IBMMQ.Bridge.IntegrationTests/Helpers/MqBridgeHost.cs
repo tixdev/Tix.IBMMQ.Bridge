@@ -6,10 +6,11 @@ using Tix.IBMMQ.Bridge.Options;
 using Tix.IBMMQ.Bridge.Services;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
+using System;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
 {
-    public class MqBridgeHost
+    public class MqBridgeHost : IDisposable
     {
         private IHost _host;
         private MQBridgeOptions _options = new MQBridgeOptions();
@@ -42,12 +43,12 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
             });
         }
 
-        public async Task RestartAsync(CancellationToken cancellationToken = default)
+        public async Task RestartAsync()
         {
             if (_host != null)
-                await StopAsync(cancellationToken);
+                await StopAsync();
 
-            await StartAsync(cancellationToken);
+            await StartAsync();
         }
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -83,14 +84,19 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
             await _host.StartAsync(cancellationToken);
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken = default)
+        public async Task StopAsync()
         {
             if (_host != null)
             {
-                await _host.StopAsync(cancellationToken);
+                await _host.StopAsync();
                 _host.Dispose();
                 _host = null;
             }
+        }
+
+        public void Dispose()
+        {
+            StopAsync().Wait();
         }
     }
 }

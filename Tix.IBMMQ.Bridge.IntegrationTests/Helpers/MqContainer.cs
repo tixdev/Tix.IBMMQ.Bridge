@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
@@ -8,7 +9,7 @@ using Xunit;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
 {
-    public class MqContainer(ContainerImage image): IAsyncLifetime
+    public class MqContainer(ContainerImage image): IAsyncLifetime, IDisposable
     {
         const string MqAppUser = "app";
         const string MqAdminUser = "admin";
@@ -44,11 +45,11 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
             return this;
         }
 
-        public async Task InitializeAsync() => await _container.StartAsync();
+        public async Task InitializeAsync()
+        {
+            await _container.StartAsync();
 
-        public async Task DisposeAsync() => await _container.DisposeAsync();
-
-        public ConnectionOptions GetMqConnectionOptions() => new ConnectionOptions
+            Connection = new ConnectionOptions
             {
                 QueueManagerName = MqManagerName,
                 ConnectionName = $"localhost({_container.GetMappedPublicPort(MqPort)})",
@@ -56,5 +57,59 @@ namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
                 Password = Password,
                 UseTls = false
             };
+        }
+
+        public async Task DisposeAsync()
+        {
+            if (_container == null)
+                return;
+
+            await _container.DisposeAsync();
+            _container = null;
+        }
+
+        public ConnectionOptions Connection {  get; private set; }
+
+        private async Task ExecuteCommandInContainerAsync(string command)
+        {
+            var execResult = await _container.ExecAsync(new[] { "/bin/bash", "-c", command });
+            if (execResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Errore nell'esecuzione del comando: {command}. Codice di uscita: {execResult.ExitCode}");
+            }
+        }
+
+        public async Task StartServerMq()
+        {
+            try
+            {
+                var startCommand = "strmqm QM1";
+                await ExecuteCommandInContainerAsync(startCommand);
+                Console.WriteLine("Server MQ avviato con successo.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Errore durante l'avvio del server MQ: {ex.Message}");
+            }
+        }
+
+        public async Task StopServerMq()
+        {
+            try
+            {
+                var stopCommand = "endmqm QM1";
+                await ExecuteCommandInContainerAsync(stopCommand);
+                Console.WriteLine("Server MQ fermato con successo.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Errore durante l'arresto del server MQ: {ex.Message}");
+            }
+        }
+
+        public void Dispose()
+        {
+            DisposeAsync().Wait();
+        }
     }
 }
