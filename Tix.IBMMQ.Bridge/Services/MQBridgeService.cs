@@ -66,6 +66,9 @@ public class MQBridgeService : BackgroundService
             pair.InboundQueue + (pair.InboundQueue != pair.OutboundQueue ? $" > {pair.OutboundQueue}" : null)
             );
 
+        // Holds the last successfully forwarded MessageId to avoid duplicates after a crash/outage
+        byte[] lastMessageId = new byte[0];
+
         while (!token.IsCancellationRequested)
         {
             try
@@ -84,17 +87,33 @@ public class MQBridgeService : BackgroundService
 
                 var pmo = new MQPutMessageOptions { Options = MQC.MQPMO_SYNCPOINT };
 
+                /// Note: 
+                /// - we are in a sequential processing context
+                /// - outboundQMgr.Commit() before inboundQMgr.Commit() grant at-least once delivery
+                /// - in case of outbound server outages, no message will be transmitted
+                /// - in case of inbound server outages, lastMessageId check avoid message duplication
+                /// So, this pattern grant exactly-once delivery
                 while (!token.IsCancellationRequested)
                 {
                     var message = new MQMessage();
+
                     try
                     {
                         inboundQueue.Get(message, gmo);
                         _logger.LogInformation("Received message from {Inbound}", pair.InboundQueue);
+                        if (message.MessageId.SequenceEqual(lastMessageId))
+                        {
+                            _logger.LogInformation("Skipping duplicate message with MessageId {MessageId}", BitConverter.ToString(message.MessageId));
+                            inboundQMgr.Commit(); // Still remove it from the queue
+                            continue;
+                        }
+
                         outboundQueue.Put(message, pmo);
                         outboundQMgr.Commit();
-                        inboundQMgr.Commit();
+                        lastMessageId = message.MessageId.ToArray();
                         _logger.LogInformation("Forwarded message to {Outbound}", pair.OutboundQueue);
+
+                        inboundQMgr.Commit();
                     }
                     catch (MQException mqEx) when (mqEx.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
                     {

@@ -3,12 +3,36 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using DotNet.Testcontainers.Builders;
 using Xunit.Abstractions;
 
 namespace Tix.IBMMQ.Bridge.IntegrationTests.Helpers
 {
     internal class TestHelper
     {
+        public const int TimeoutSeconds = 120;
+
+        public static async Task<(int TotIn, int TotOut)> WaitUntilInboundIsEmpty(
+            ITestOutputHelper logger,
+            string channel, string queue,
+            Options.ConnectionOptions connIn,
+            Options.ConnectionOptions connOut)
+        {
+            (int In, int Out) tot = (0, 0);
+            bool result = await Evaluate(logger, () =>
+            {
+                tot.In = connIn.GetQueueDepth(channel, queue);
+                int lastTotOut = connOut.GetQueueDepth(channel, queue);
+                // Wait until input queue is empty but output queue total is stable
+                bool exitTest = tot.In == 0 && lastTotOut == tot.Out;
+                tot.Out = lastTotOut;
+                return exitTest;
+            },
+            timeDependentTest: true, // Retest outbound waiting until messages transmission is completed
+            timeoutSeconds: TimeoutSeconds);
+            return tot;
+        }
+
         /// <summary>
         /// </summary>
         /// <param name="test"></param>

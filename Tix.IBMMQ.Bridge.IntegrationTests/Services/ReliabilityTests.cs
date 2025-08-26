@@ -28,8 +28,8 @@ public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
     {
         _logger = logger;
         _fixture = fixture;
-        _fixture.InitBridge(_logger, 
-            (Channel, TestQueue1), 
+        _fixture.InitBridge(_logger,
+            (Channel, TestQueue1),
             (Channel, PersistedQueue));
     }
 
@@ -102,29 +102,39 @@ public class ReliabilityTests : IClassFixture<ReliabilityTestsFixture>
     }
 
     [Fact]
-    public async Task Should_not_lose_messages_after_outbound_stop()
+    public async Task Should_not_lose_messages_on_outbound_outages()
     {
-        const int TotMsg = 3000;
+        await SendMessagesAndSimulateOutages(3000, _fixture.MqOut);
+    }
 
+    [Fact]
+    public async Task Should_not_send_a_message_more_times_on_inbound_outages()
+    {
+        await SendMessagesAndSimulateOutages(3000, _fixture.MqIn);
+    }
+
+    private async Task SendMessagesAndSimulateOutages(int totMsg, MqContainer mq)
+    {
         await InitTestAsync();
 
-        var messages = Enumerable.Range(0, TotMsg).Select(i => $"Message {i}");
+        var messages = Enumerable.Range(0, totMsg).Select(i => $"Message {i}");
         _fixture.MqIn.Connection.PutMessages(Channel, PersistedQueue, messages);
 
-        await Task.Delay(1000); // Let bridge work a while
-        await _fixture.MqOut.StopServerMq();
-        await Task.Delay(1000);
-        await _fixture.MqOut.StartServerMq();
-
-        int totIn = 0, totOut = 0;
-        bool result = await TestHelper.Evaluate(_logger, () =>
+        // Simulate intermittent outbound server outages
+        for (int i = 1; i <= 5; i++)
         {
-            totIn = _fixture.MqIn.Connection.GetQueueDepth(Channel, PersistedQueue);
-            totOut = _fixture.MqOut.Connection.GetQueueDepth(Channel, PersistedQueue);
-            return totIn == 0 && totOut == TotMsg;
-        },
-        timeoutSeconds: 90);
+            await Task.Delay(3000); // Let bridge work a while
+            await mq.StopServerMq();
+            await Task.Delay(1000);
+            await mq.StartServerMq();
+        }
 
-        result.ShouldBeTrue($"Expected {TotMsg} messages on outbound queue but received {totOut}." + (totIn > 0 ? $" Warning: {totIn} still in the inbound queue after result timeout" : ""));
+        var result = await TestHelper.WaitUntilInboundIsEmpty(_logger,
+            Channel, PersistedQueue,
+            _fixture.MqIn.Connection,
+            _fixture.MqOut.Connection);
+
+        (result.TotOut == totMsg && result.TotIn == 0)
+        .ShouldBeTrue($"Expected {totMsg} messages on outbound queue but received {result.TotOut}." + (result.TotIn > 0 ? $" Warning: {result.TotIn} still in the inbound queue after result timeout" : ""));
     }
 }
