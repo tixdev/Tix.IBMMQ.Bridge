@@ -37,8 +37,15 @@ internal class XunitLogger : ILogger
         Func<TState, Exception, string> formatter)
     {
         var message = formatter(state, exception);
-        _output.WriteLine($"[{DateTime.Now:HH:mm:ss}][{logLevel}][{_category}] {message}");
-        if (exception != null)
-            _output.WriteLine(exception.ToString());
+        try
+        {
+            _output.WriteLine($"[{DateTime.Now:HH:mm:ss}][{logLevel}][{_category}] {message}");
+            if (exception != null)
+                _output.WriteLine(exception.ToString());
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignora: il test non è più attivo (include anche ObjectDisposedException)
+        }
     }
 }
