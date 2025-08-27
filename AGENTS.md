@@ -19,6 +19,9 @@ This repository may contain different types of .NET applications, such as Angula
 - .NET 8.0 SDK+
 - SQL Server Developer Edition
 - Node.js 18+ (if client-side bundling is needed)
+- ensure dotnet sdk is installed with sudo apt-get update && sudo apt-get install -y dotnet-sdk-8.0
+- if necessary use sudo usermod -aG docker <nome_utente> and sudo chmod 666 /var/run/docker.sock for use testcontainer or run container nested
+
 
 ## Project Structure Guidelines
 - `Components/` — Angular components organized using SCAM pattern and standalone modules

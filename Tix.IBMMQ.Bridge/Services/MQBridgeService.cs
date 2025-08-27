@@ -95,10 +95,12 @@ public class MQBridgeService : BackgroundService
                 /// So, this pattern grants exactly-once delivery
                 while (!token.IsCancellationRequested)
                 {
+                    //must be insert logic to reconnect every x cycles without messages
                     var message = new MQMessage();
 
                     try
                     {
+                        _logger.LogInformation("Getting message on {Inbound}", pair.InboundQueue);
                         inboundQueue.Get(message, gmo);
                         _logger.LogInformation("Received message from {Inbound}", pair.InboundQueue);
                         if (message.MessageId.SequenceEqual(lastMessageId))
@@ -117,7 +119,7 @@ public class MQBridgeService : BackgroundService
                     }
                     catch (MQException mqEx) when (mqEx.Reason == MQC.MQRC_NO_MSG_AVAILABLE)
                     {
-                        break;
+                        _logger.LogInformation("No message available on {Inbound}", pair.InboundQueue);
                     }
                     catch
                     {
@@ -181,7 +183,9 @@ public class MQBridgeService : BackgroundService
             { MQC.CHANNEL_PROPERTY, channel },
             { MQC.USER_ID_PROPERTY, opts.UserId },
             { MQC.PASSWORD_PROPERTY, opts.Password },
-            { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
+            { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED },
+            { MQC.SSL_CIPHER_SPEC_PROPERTY, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384" },
+            { MQC.APPNAME_PROPERTY, "Tix.IBMMQ.Bridge" }
         };
 
         if (opts.UseTls)
