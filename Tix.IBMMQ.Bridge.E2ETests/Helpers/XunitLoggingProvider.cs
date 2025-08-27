@@ -2,7 +2,7 @@ using System;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
-namespace Tix.IBMMQ.Bridge.IntegrationTests;
+namespace Tix.IBMMQ.Bridge.E2ETests.Helpers;
 
 public class XunitLoggerProvider : ILoggerProvider
 {
@@ -37,15 +37,8 @@ internal class XunitLogger : ILogger
         Func<TState, Exception, string> formatter)
     {
         var message = formatter(state, exception);
-        try
-        {
-            _output.WriteLine($"[{DateTime.Now:HH:mm:ss}][{logLevel}][{_category}] {message}");
-            if (exception != null)
-                _output.WriteLine(exception.ToString());
-        }
-        catch (InvalidOperationException)
-        {
-            // Ignora: il test non è più attivo (include anche ObjectDisposedException)
-        }
+        _output.WriteLine($"[{DateTime.Now:HH:mm:ss}][{logLevel}][{_category}] {message}");
+        if (exception != null)
+            _output.WriteLine(exception.ToString());
     }
 }
