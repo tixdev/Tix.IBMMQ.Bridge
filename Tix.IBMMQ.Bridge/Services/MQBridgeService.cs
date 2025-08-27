@@ -89,10 +89,10 @@ public class MQBridgeService : BackgroundService
 
                 /// Note: 
                 /// - we are in a sequential processing context
-                /// - outboundQMgr.Commit() before inboundQMgr.Commit() grant at-least once delivery
+                /// - outboundQMgr.Commit() before inboundQMgr.Commit() grants at-least once delivery
                 /// - in case of outbound server outages, no message will be transmitted
                 /// - in case of inbound server outages, lastMessageId check avoid message duplication
-                /// So, this pattern grant exactly-once delivery
+                /// So, this pattern grants exactly-once delivery
                 while (!token.IsCancellationRequested)
                 {
                     var message = new MQMessage();
