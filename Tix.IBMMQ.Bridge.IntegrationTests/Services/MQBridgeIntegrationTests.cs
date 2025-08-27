@@ -136,17 +136,17 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
 
         _logger.WriteLine("Start bridge");
         await RunMqBridge(options);
-
+        
         await Task.Delay(TimeSpan.FromSeconds(10));
-
+        
         options.QueuePairs.ForEach(qp =>
         {
             _logger.WriteLine($"Getting message from Server2 queue: {qp.OutboundQueue}");
-
+            
             var message = GetMessage(conn2, channel, qp.OutboundQueue);
             message.ShouldBe("hello");
         });
-
+        
         //await Task.Delay(TimeSpan.FromMinutes(10));
     }
 
@@ -156,10 +156,10 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
         var options = new MQBridgeOptions
         {
             Connections =
-             {
-                 ["ConnA"] = conn1,
-                 ["ConnB"] = conn2
-             },
+            {
+                ["ConnA"] = conn1,
+                ["ConnB"] = conn2
+            },
             QueuePairs = []
         };
 
@@ -231,14 +231,14 @@ public class MQBridgeIntegrationTests : IAsyncLifetime
     {
         var (host, port) = MQBridgeService.ParseConnectionName(opts.ConnectionName);
         return new Hashtable
-         {
-             { MQC.HOST_NAME_PROPERTY, host },
-             { MQC.PORT_PROPERTY, port },
-             { MQC.CHANNEL_PROPERTY, channel },
-             { MQC.USER_ID_PROPERTY, opts.UserId },
-             { MQC.PASSWORD_PROPERTY, opts.Password },
-             { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
-         };
+        {
+            { MQC.HOST_NAME_PROPERTY, host },
+            { MQC.PORT_PROPERTY, port },
+            { MQC.CHANNEL_PROPERTY, channel },
+            { MQC.USER_ID_PROPERTY, opts.UserId },
+            { MQC.PASSWORD_PROPERTY, opts.Password },
+            { MQC.TRANSPORT_PROPERTY, MQC.TRANSPORT_MQSERIES_MANAGED }
+        };
     }
 
     private static bool ImageExists(string image)
