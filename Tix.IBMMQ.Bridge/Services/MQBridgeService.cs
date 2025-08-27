@@ -67,7 +67,7 @@ public class MQBridgeService : BackgroundService
             );
 
         // Holds the last successfully forwarded MessageId to avoid duplicates after a crash/outage
-        byte[] lastMessageId = new byte[0];
+        byte[] lastMessageId = Array.Empty<byte>();
 
         while (!token.IsCancellationRequested)
         {
