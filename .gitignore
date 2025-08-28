@@ -1,7 +1,5 @@
-Tix.IBMMQ.Bridge/bin
-Tix.IBMMQ.Bridge/obj
-Tix.IBMMQ.Bridge.IntegrationTests/bin
-Tix.IBMMQ.Bridge.IntegrationTests/obj
-Tix.IBMMQ.Bridge.Tests/bin
-Tix.IBMMQ.Bridge.Tests/obj
+**/bin/
+**/obj/
 Tix.IBMMQ.Bridge.sln.DotSettings.user
+/.vs
+/Tix.IBMMQ.Bridge.E2ETests/appsettings.actual.json
